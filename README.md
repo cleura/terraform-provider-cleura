@@ -15,7 +15,7 @@ TBD
 
 The provider can be built and tested locally. Use the sections in this chapter to build and run the provider with local changes.
 
-### Running locally
+### Running locally from binary
 
 To build and run the provider locally, you will need a `~/.terraformrc` with development overrides:
 
@@ -32,6 +32,54 @@ provider_installation {
   direct {}
 }
 ```
+
+Within the repository root, run
+
+```sh
+go install .
+```
+
+Now you can run Terraform with the locally installed provider as normal. Don't forget to remove the `dev_overrides` if you want to install the proivder from the registry
+
+### Runing locally with VSCode debugger
+
+To run the provider in debug mode withing VSCode, create a new file `.vscode/launch.json` in the root of the repository, fill in the `CLEURA_API_USERNAME` and `CLEURA_API_TOKEN`. This is because the terraform provider WILL NOT source environment variables set in the current shell session:
+
+```json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Terraform Provider",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            // this assumes your workspace is the root of the repo
+            "program": "${workspaceFolder}",
+            "env": {
+                "CLEURA_API_USERNAME": "<your username>",
+                "CLEURA_API_TOKEN": "<your token>"
+            },
+            "args": [
+                "-debug",
+            ]
+        }
+    ]
+}
+```
+
+In the "Run and Debug" tab, you should now see "Debug Terraform Provider" in the dropdown menu. Select it and press the play button to start the debug session.
+
+This should open the "Debug console" and display an environment variable containing the connection string for this instance. Copy this variable to your shell and run terraform right after it:
+
+```sh
+TF_REATTACH_PROVIDERS='{"registry.terraform.io/cleura/cleura":{"Protocol":"grpc","ProtocolVersion":6,"Pid":1181,"Test":true,"Addr":{"Network":"unix","String":"/var/folders/kg/lqlc92tx6cn2w4gm9jjst__m0000gn/T/plugin2941296319"}}}' terraform plan
+```
+
+After updating the code, you will need to restart the debug session, which also generates a new connection string. When changing the environment variables in `launch.json`, you will need to STOP the debug session to reload any environment variable changes.
+
+> [!NOTE]
+> If you can't see the "Debug Terraform Provider" in the debug tab, ensure you have opened the root of the repository as the workspace root.
 
 ### Generate
 

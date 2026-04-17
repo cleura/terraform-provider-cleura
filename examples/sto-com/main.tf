@@ -58,4 +58,3 @@ resource "cleura_shoot" "example" {
     ]
   }
 }
-

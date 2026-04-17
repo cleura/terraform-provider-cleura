@@ -9,3 +9,5 @@ launch.json
 slask
 
 *.env
+
+terraform-provider-cleura
