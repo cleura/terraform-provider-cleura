@@ -41,7 +41,7 @@ go install .
 
 Now you can run Terraform with the locally installed provider as normal. Don't forget to remove the `dev_overrides` if you want to install the proivder from the registry
 
-### Runing locally with VSCode debugger
+### Running locally with VSCode debugger
 
 To run the provider in debug mode withing VSCode, create a new file `.vscode/launch.json` in the root of the repository, fill in the `CLEURA_API_USERNAME` and `CLEURA_API_TOKEN`. This is because the terraform provider WILL NOT source environment variables set in the current shell session:
 
