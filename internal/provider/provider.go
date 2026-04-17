@@ -13,7 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
-	"github.com/cleura/terraform-provider-cleura/client"
+	cleura "github.com/cleura/terraform-provider-cleura/client"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -211,6 +211,7 @@ func (p *cleuraProvider) DataSources(_ context.Context) []func() datasource.Data
 func (p *cleuraProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewShootResource,
+		NewShootKubeconfigResource,
 	}
 }
 

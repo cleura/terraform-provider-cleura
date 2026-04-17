@@ -578,6 +578,19 @@
 					}
 				]
 			}
+		},
+		{
+			"name": "shoot_kubeconfig",
+			"schema": {
+				"attributes": [
+					{
+						"name": "expiration_seconds",
+						"int64": {
+							"computed_optional_required": "required"
+						}
+					}
+				]
+			}
 		}
 	],
 	"version": "0.1"
