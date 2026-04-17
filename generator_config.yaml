@@ -1,0 +1,43 @@
+provider:
+  name: cleura
+
+resources:
+  shoot:
+    create:
+      path: /gardener/v2/{gardenerRegionTag}/shoots/{openStackRegionTag}/{openStackProjectId}
+      method: POST
+    read:
+      path: /gardener/v2/{gardenerRegionTag}/shoots/{openStackRegionTag}/{openStackProjectId}/{shootName}
+      method: GET
+    update:
+      path: /gardener/v2/{gardenerRegionTag}/shoots/{openStackRegionTag}/{openStackProjectId}/{shootName}
+      method: PATCH
+    delete:
+      path: /gardener/v2/{gardenerRegionTag}/shoots/{openStackRegionTag}/{openStackProjectId}/{shootName}
+      method: DELETE
+    schema:
+      ignores:
+        - "shootName"
+        #- "gardenerRegionTag"
+        #- "openStackProjectId"
+        #- "openStackRegionTag"
+        - credentials_binding_name
+        - "hibernation"
+        - "kubernetes"
+        - "last_operation"
+        - "namespace"
+        - "secret_binding_name"
+        - "networking"
+        - "control_plane"
+        - "purpose"
+        - "region"
+        - "type"
+        - "status"
+        - "technical_id"
+        - "shoot_provider.infrastructure_config.networks"
+        - "shoot_provider.control_plane_config"
+        - "shoot_provider.type"
+        - "shoot_provider.workers.volume"
+        - "shoot_provider.workers.machine.architecture"
+        - "shoot_provider.workers.machine.image"
+        - "uid" # Should not be needed

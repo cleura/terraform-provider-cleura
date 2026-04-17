@@ -1,0 +1,584 @@
+{
+	"provider": {
+		"name": "cleura"
+	},
+	"resources": [
+		{
+			"name": "shoot",
+			"schema": {
+				"attributes": [
+					{
+						"name": "allowed_cidrs",
+						"list": {
+							"computed_optional_required": "computed_optional",
+							"element_type": {
+								"string": {}
+							}
+						}
+					},
+					{
+						"name": "enable_ha_control_plane",
+						"bool": {
+							"computed_optional_required": "computed_optional"
+						}
+					},
+					{
+						"name": "hibernation_schedules",
+						"list_nested": {
+							"computed_optional_required": "computed_optional",
+							"nested_object": {
+								"attributes": [
+									{
+										"name": "end",
+										"string": {
+											"computed_optional_required": "required",
+											"validators": [
+												{
+													"custom": {
+														"imports": [
+															{
+																"path": "regexp"
+															},
+															{
+																"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+															}
+														],
+														"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\".*((@(annually|yearly|monthly|weekly|daily|hourly|reboot))|(@every (\\\\d+(ns|us|µs|ms|s|m|h))+)|((((\\\\d+,)+\\\\d+|([\\\\d\\\\*]+(/|-)\\\\d+)|\\\\d+|\\\\*) ?){5,7})).*\"), \"\")"
+													}
+												}
+											]
+										}
+									},
+									{
+										"name": "start",
+										"string": {
+											"computed_optional_required": "required",
+											"validators": [
+												{
+													"custom": {
+														"imports": [
+															{
+																"path": "regexp"
+															},
+															{
+																"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+															}
+														],
+														"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\".*((@(annually|yearly|monthly|weekly|daily|hourly|reboot))|(@every (\\\\d+(ns|us|µs|ms|s|m|h))+)|((((\\\\d+,)+\\\\d+|([\\\\d\\\\*]+(/|-)\\\\d+)|\\\\d+|\\\\*) ?){5,7})).*\"), \"\")"
+													}
+												}
+											]
+										}
+									}
+								]
+							}
+						}
+					},
+					{
+						"name": "kubernetes_version",
+						"string": {
+							"computed_optional_required": "required",
+							"validators": [
+								{
+									"custom": {
+										"imports": [
+											{
+												"path": "regexp"
+											},
+											{
+												"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+											}
+										],
+										"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\"[0-9]+(\\\\.[0-9]+)*\"), \"\")"
+									}
+								}
+							]
+						}
+					},
+					{
+						"name": "maintenance",
+						"single_nested": {
+							"computed_optional_required": "computed_optional",
+							"attributes": [
+								{
+									"name": "auto_update",
+									"single_nested": {
+										"computed_optional_required": "computed_optional",
+										"attributes": [
+											{
+												"name": "kubernetes_version",
+												"bool": {
+													"computed_optional_required": "required"
+												}
+											},
+											{
+												"name": "machine_image_version",
+												"bool": {
+													"computed_optional_required": "required"
+												}
+											}
+										]
+									}
+								},
+								{
+									"name": "time_window",
+									"single_nested": {
+										"computed_optional_required": "computed_optional",
+										"attributes": [
+											{
+												"name": "begin",
+												"string": {
+													"computed_optional_required": "required",
+													"validators": [
+														{
+															"custom": {
+																"imports": [
+																	{
+																		"path": "regexp"
+																	},
+																	{
+																		"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																	}
+																],
+																"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\"\\\\d{6}\\\\+\\\\d{4}\"), \"\")"
+															}
+														}
+													]
+												}
+											},
+											{
+												"name": "end",
+												"string": {
+													"computed_optional_required": "required",
+													"validators": [
+														{
+															"custom": {
+																"imports": [
+																	{
+																		"path": "regexp"
+																	},
+																	{
+																		"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																	}
+																],
+																"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\"\\\\d{6}\\\\+\\\\d{4}\"), \"\")"
+															}
+														}
+													]
+												}
+											}
+										]
+									}
+								}
+							]
+						}
+					},
+					{
+						"name": "name",
+						"string": {
+							"computed_optional_required": "required",
+							"validators": [
+								{
+									"custom": {
+										"imports": [
+											{
+												"path": "regexp"
+											},
+											{
+												"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+											}
+										],
+										"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\"[A-Za-z0-9\\\\-]+\"), \"\")"
+									}
+								}
+							]
+						}
+					},
+					{
+						"name": "shoot_provider",
+						"single_nested": {
+							"computed_optional_required": "required",
+							"attributes": [
+								{
+									"name": "infrastructure_config",
+									"single_nested": {
+										"computed_optional_required": "required",
+										"attributes": [
+											{
+												"name": "floating_pool_name",
+												"string": {
+													"computed_optional_required": "required",
+													"validators": [
+														{
+															"custom": {
+																"imports": [
+																	{
+																		"path": "regexp"
+																	},
+																	{
+																		"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																	}
+																],
+																"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\"[A-Za-z 0-9\\\\.,_:åäöÅÄÖüÜéÉÕõãÂẼẽØøÆæßĄąĆćĘęŁłŃńÓóŚśŹźŻż/\\\\-]+\"), \"\")"
+															}
+														}
+													]
+												}
+											},
+											{
+												"name": "network_id",
+												"string": {
+													"computed_optional_required": "computed_optional",
+													"validators": [
+														{
+															"custom": {
+																"imports": [
+																	{
+																		"path": "regexp"
+																	},
+																	{
+																		"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																	}
+																],
+																"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\"[0-9a-fA-F]{8}\\\\-[0-9a-fA-F]{4}\\\\-[0-9a-fA-F]{4}\\\\-[0-9a-fA-F]{4}\\\\-[0-9a-fA-F]{12}\"), \"\")"
+															}
+														}
+													]
+												}
+											},
+											{
+												"name": "router_id",
+												"string": {
+													"computed_optional_required": "computed_optional",
+													"validators": [
+														{
+															"custom": {
+																"imports": [
+																	{
+																		"path": "regexp"
+																	},
+																	{
+																		"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																	}
+																],
+																"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\"[0-9a-fA-F]{8}\\\\-[0-9a-fA-F]{4}\\\\-[0-9a-fA-F]{4}\\\\-[0-9a-fA-F]{4}\\\\-[0-9a-fA-F]{12}\"), \"\")"
+															}
+														}
+													]
+												}
+											},
+											{
+												"name": "workers_network_cidr",
+												"string": {
+													"computed_optional_required": "computed_optional",
+													"validators": [
+														{
+															"custom": {
+																"imports": [
+																	{
+																		"path": "regexp"
+																	},
+																	{
+																		"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																	}
+																],
+																"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\".*(^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\\\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}(/([0-9]{1}|[1-2]{1}[0-9]{1}|3[0-2]{1}))$).*\"), \"\")"
+															}
+														}
+													]
+												}
+											}
+										]
+									}
+								},
+								{
+									"name": "load_balancer_provider",
+									"string": {
+										"computed_optional_required": "required",
+										"validators": [
+											{
+												"custom": {
+													"imports": [
+														{
+															"path": "regexp"
+														},
+														{
+															"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+														}
+													],
+													"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\"[A-Za-z0-9_\\\\-]+\"), \"\")"
+												}
+											}
+										]
+									}
+								},
+								{
+									"name": "workers",
+									"list_nested": {
+										"computed_optional_required": "required",
+										"nested_object": {
+											"attributes": [
+												{
+													"name": "annotations",
+													"list_nested": {
+														"computed_optional_required": "computed_optional",
+														"nested_object": {
+															"attributes": [
+																{
+																	"name": "key",
+																	"string": {
+																		"computed_optional_required": "required"
+																	}
+																},
+																{
+																	"name": "value",
+																	"string": {
+																		"computed_optional_required": "required"
+																	}
+																}
+															]
+														}
+													}
+												},
+												{
+													"name": "labels",
+													"list_nested": {
+														"computed_optional_required": "computed_optional",
+														"nested_object": {
+															"attributes": [
+																{
+																	"name": "key",
+																	"string": {
+																		"computed_optional_required": "required"
+																	}
+																},
+																{
+																	"name": "value",
+																	"string": {
+																		"computed_optional_required": "required"
+																	}
+																}
+															]
+														}
+													}
+												},
+												{
+													"name": "machine",
+													"single_nested": {
+														"computed_optional_required": "required",
+														"attributes": [
+															{
+																"name": "image_name",
+																"string": {
+																	"computed_optional_required": "required",
+																	"validators": [
+																		{
+																			"custom": {
+																				"imports": [
+																					{
+																						"path": "regexp"
+																					},
+																					{
+																						"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																					}
+																				],
+																				"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\"[A-Za-z 0-9\\\\.,_:åäöÅÄÖüÜéÉÕõãÂẼẽØøÆæßĄąĆćĘęŁłŃńÓóŚśŹźŻż/\\\\-]+\"), \"\")"
+																			}
+																		}
+																	]
+																}
+															},
+															{
+																"name": "image_version",
+																"string": {
+																	"computed_optional_required": "required",
+																	"validators": [
+																		{
+																			"custom": {
+																				"imports": [
+																					{
+																						"path": "regexp"
+																					},
+																					{
+																						"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																					}
+																				],
+																				"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\"[0-9]+(\\\\.[0-9]+)*\"), \"\")"
+																			}
+																		}
+																	]
+																}
+															},
+															{
+																"name": "type",
+																"string": {
+																	"computed_optional_required": "required",
+																	"validators": [
+																		{
+																			"custom": {
+																				"imports": [
+																					{
+																						"path": "regexp"
+																					},
+																					{
+																						"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																					}
+																				],
+																				"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\"[A-Za-z 0-9\\\\.,_:åäöÅÄÖüÜéÉÕõãÂẼẽØøÆæßĄąĆćĘęŁłŃńÓóŚśŹźŻż/\\\\-]+\"), \"\")"
+																			}
+																		}
+																	]
+																}
+															}
+														]
+													}
+												},
+												{
+													"name": "max_surge",
+													"int64": {
+														"computed_optional_required": "computed_optional"
+													}
+												},
+												{
+													"name": "maximum",
+													"int64": {
+														"computed_optional_required": "computed_optional"
+													}
+												},
+												{
+													"name": "minimum",
+													"int64": {
+														"computed_optional_required": "computed_optional"
+													}
+												},
+												{
+													"name": "name",
+													"string": {
+														"computed_optional_required": "computed_optional",
+														"validators": [
+															{
+																"custom": {
+																	"imports": [
+																		{
+																			"path": "regexp"
+																		},
+																		{
+																			"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																		}
+																	],
+																	"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\"[A-Za-z0-9_\\\\-]+\"), \"\")"
+																}
+															}
+														]
+													}
+												},
+												{
+													"name": "taints",
+													"list_nested": {
+														"computed_optional_required": "computed_optional",
+														"nested_object": {
+															"attributes": [
+																{
+																	"name": "effect",
+																	"string": {
+																		"computed_optional_required": "required",
+																		"validators": [
+																			{
+																				"custom": {
+																					"imports": [
+																						{
+																							"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																						}
+																					],
+																					"schema_definition": "stringvalidator.OneOf(\n\"no_schedule\",\n\"no_execute\",\n\"prefer_no_schedule\",\n)"
+																				}
+																			}
+																		]
+																	}
+																},
+																{
+																	"name": "key",
+																	"string": {
+																		"computed_optional_required": "required"
+																	}
+																},
+																{
+																	"name": "value",
+																	"string": {
+																		"computed_optional_required": "computed_optional"
+																	}
+																}
+															]
+														}
+													}
+												},
+												{
+													"name": "volume_size",
+													"string": {
+														"computed_optional_required": "required",
+														"validators": [
+															{
+																"custom": {
+																	"imports": [
+																		{
+																			"path": "regexp"
+																		},
+																		{
+																			"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																		}
+																	],
+																	"schema_definition": "stringvalidator.RegexMatches(regexp.MustCompile(\"[A-Za-z0-9_\\\\-]+\"), \"\")"
+																}
+															}
+														]
+													}
+												},
+												{
+													"name": "zones",
+													"list": {
+														"computed_optional_required": "computed_optional",
+														"element_type": {
+															"string": {}
+														}
+													}
+												},
+												{
+													"name": "max_unavailable",
+													"int64": {
+														"computed_optional_required": "computed",
+														"default": {
+															"static": 0
+														}
+													}
+												}
+											]
+										}
+									}
+								}
+							]
+						}
+					},
+					{
+						"name": "gardener_region_tag",
+						"string": {
+							"computed_optional_required": "computed_optional"
+						}
+					},
+					{
+						"name": "open_stack_region_tag",
+						"string": {
+							"computed_optional_required": "computed_optional"
+						}
+					},
+					{
+						"name": "open_stack_project_id",
+						"string": {
+							"computed_optional_required": "computed_optional"
+						}
+					}
+				]
+			}
+		}
+	],
+	"version": "0.1"
+}

@@ -1,0 +1,8 @@
+overlay: 1.0.0
+info:
+  title: "Example to indicate how to use the OpenAPI Overlay specification (https://github.com/OAI/Overlay-Specification)"
+  version: 1.0.0
+actions:
+- target: $.paths['/gardener/v2/{gardenerRegionTag}/shoots/{openStackRegionTag}/{openStackProjectId}/{shootName}/monitoring/workers/{workerName}/nodes']
+  description: This functin doesn't generate well, remove it for now
+  remove: true

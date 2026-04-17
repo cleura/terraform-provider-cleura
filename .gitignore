@@ -1,0 +1,11 @@
+__debug*
+
+.terraform*
+*.tfstate
+*.tfstate.backup
+warnings.txt
+
+launch.json
+slask
+
+*.env
