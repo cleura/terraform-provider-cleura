@@ -3,10 +3,6 @@ terraform {
     cleura = {
       source = "cleura/cleura"
     }
-    openstack = {
-      source  = "terraform-provider-openstack/openstack"
-      version = "3.4.0"
-    }
   }
 }
 
@@ -14,10 +10,9 @@ provider "cleura" {
   url = "https://rest.compliant.cleura.cloud"
 }
 
-provider "openstack" {}
-
-data "openstack_identity_project_v3" "this" {
-  name = "some-project"
+data "cleura_project" "example" {
+  name                  = "some-project"
+  open_stack_region_tag = "sto-com"
 }
 
 resource "cleura_shoot" "example" {
@@ -30,8 +25,8 @@ resource "cleura_shoot" "example" {
 
   // When using compliant cloud, gardener region tag is "compliant"
   gardener_region_tag   = "compliant"
-  open_stack_region_tag = "sto-com"
-  open_stack_project_id = data.openstack_identity_project_v3.this.id
+  open_stack_project_id = data.cleura_project.example.id
+  open_stack_region_tag = data.cleura_project.example.open_stack_region_tag
 
   shoot_provider = {
     infrastructure_config = {
@@ -57,4 +52,18 @@ resource "cleura_shoot" "example" {
       },
     ]
   }
+}
+
+resource "cleura_shoot_kubeconfig" "example" {
+  expiration_seconds = 3600 # One hour
+
+  shoot_name            = cleura_shoot.example.name
+  gardener_region_tag   = cleura_shoot.example.gardener_region_tag
+  open_stack_region_tag = cleura_shoot.example.open_stack_region_tag
+  open_stack_project_id = cleura_shoot.example.open_stack_project_id
+}
+
+output "admin_kubeconfig" {
+  value     = cleura_shoot_kubeconfig.example.kubeconfig
+  sensitive = true
 }
