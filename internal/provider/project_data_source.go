@@ -121,7 +121,7 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 	}
 	// If no project was found, return an error
 	if project == nil {
-		resp.Diagnostics.AddError("Project not found", fmt.Sprintf("No project named %s was found. Make sure the name is correct and the authenticated user has access to the project", data.OpenStackRegionTag.ValueString()))
+		resp.Diagnostics.AddError("Project not found", fmt.Sprintf("No project named %s was found. Make sure the name is correct and the authenticated user has access to the project", data.Name.ValueString()))
 		return
 	}
 

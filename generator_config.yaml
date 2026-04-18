@@ -18,9 +18,9 @@ resources:
     schema:
       ignores:
         - "shootName"
-        #- "gardenerRegionTag"
-        #- "openStackProjectId"
-        #- "openStackRegionTag"
+        # - "gardenerRegionTag"
+        # - "openStackProjectId"
+        # - "openStackRegionTag"
         - credentials_binding_name
         - "hibernation"
         - "kubernetes"

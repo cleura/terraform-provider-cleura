@@ -11,7 +11,7 @@ provider "cleura" {
 }
 
 data "cleura_project" "example" {
-  name                  = "some-project"
+  name                  = "lh2185" #"some-project"
   open_stack_region_tag = "sto-com"
 }
 
@@ -66,4 +66,14 @@ resource "cleura_shoot_kubeconfig" "example" {
 output "admin_kubeconfig" {
   value     = cleura_shoot_kubeconfig.example.kubeconfig
   sensitive = true
+}
+
+data "cleura_shoot_cloudprofile" "example" {
+  gardener_region_tag = "compliant"
+  kubernetes = {
+    most_recent = true
+  }
+  machine_image = {
+    most_recent = true
+  }
 }

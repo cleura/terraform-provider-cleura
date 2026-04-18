@@ -206,6 +206,7 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 func (p *cleuraProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewProjectDataSource,
+		NewShootCloudprofileDataSource,
 	}
 }
 
