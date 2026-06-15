@@ -63,7 +63,7 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		return
 	}
 
-	response, err := d.config.Client.IdentityListRegionsWithProjects(ctx)
+	response, err := d.config.Client.OpenStackIdentityListRegionsWithProjects(ctx)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to list regions and projects", err.Error())
 		return
@@ -81,13 +81,13 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		return
 	}
 
-	var regions []api.IdentityRegionWithProjects
+	var regions []api.OpenStackIdentityRegionWithProjects
 	if err := json.Unmarshal(body, &regions); err != nil {
 		resp.Diagnostics.AddError("Failed to unmarshal response", err.Error())
 		return
 	}
 
-	var region *api.IdentityRegionWithProjects
+	var region *api.OpenStackIdentityRegionWithProjects
 	for _, r := range regions {
 		if r.Region.Tag == d.config.Region {
 			region = &r
@@ -101,7 +101,7 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		return
 	}
 
-	var project *api.IdentityProject
+	var project *api.OpenStackIdentityProject
 	for _, p := range region.Projects {
 		if p.Name == data.Name.ValueString() {
 			project = &p

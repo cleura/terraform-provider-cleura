@@ -4,7 +4,7 @@
 	},
 	"resources": [
 		{
-			"name": "shoot",
+			"name": "gardener_shoot",
 			"schema": {
 				"attributes": [
 					{
@@ -108,13 +108,13 @@
 											{
 												"name": "kubernetes_version",
 												"bool": {
-													"computed_optional_required": "required"
+													"computed_optional_required": "computed_optional"
 												}
 											},
 											{
 												"name": "machine_image_version",
 												"bool": {
-													"computed_optional_required": "required"
+													"computed_optional_required": "computed_optional"
 												}
 											}
 										]
@@ -178,6 +178,16 @@
 						"string": {
 							"computed_optional_required": "required",
 							"validators": [
+								{
+									"custom": {
+										"imports": [
+											{
+												"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+											}
+										],
+										"schema_definition": "stringvalidator.LengthBetween(1, 15)"
+									}
+								},
 								{
 									"custom": {
 										"imports": [
@@ -370,7 +380,7 @@
 															{
 																"name": "image_name",
 																"string": {
-																	"computed_optional_required": "required",
+																	"computed_optional_required": "computed_optional",
 																	"validators": [
 																		{
 																			"custom": {
@@ -391,7 +401,7 @@
 															{
 																"name": "image_version",
 																"string": {
-																	"computed_optional_required": "required",
+																	"computed_optional_required": "computed_optional",
 																	"validators": [
 																		{
 																			"custom": {
@@ -412,7 +422,7 @@
 															{
 																"name": "type",
 																"string": {
-																	"computed_optional_required": "required",
+																	"computed_optional_required": "computed_optional",
 																	"validators": [
 																		{
 																			"custom": {
@@ -490,7 +500,7 @@
 																							"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 																						}
 																					],
-																					"schema_definition": "stringvalidator.OneOf(\n\"no_schedule\",\n\"no_execute\",\n\"prefer_no_schedule\",\n)"
+																					"schema_definition": "stringvalidator.OneOf(\n\"NoSchedule\",\n\"NoExecute\",\n\"PreferNoSchedule\",\n)"
 																				}
 																			}
 																		]
@@ -505,7 +515,7 @@
 																{
 																	"name": "value",
 																	"string": {
-																		"computed_optional_required": "computed_optional"
+																		"computed_optional_required": "required"
 																	}
 																}
 															]
@@ -559,34 +569,9 @@
 						}
 					},
 					{
-						"name": "gardener_region_tag",
+						"name": "cloud_profile_name",
 						"string": {
-							"computed_optional_required": "computed_optional"
-						}
-					},
-					{
-						"name": "open_stack_region_tag",
-						"string": {
-							"computed_optional_required": "computed_optional"
-						}
-					},
-					{
-						"name": "open_stack_project_id",
-						"string": {
-							"computed_optional_required": "computed_optional"
-						}
-					}
-				]
-			}
-		},
-		{
-			"name": "shoot_kubeconfig",
-			"schema": {
-				"attributes": [
-					{
-						"name": "expiration_seconds",
-						"int64": {
-							"computed_optional_required": "required"
+							"computed_optional_required": "computed"
 						}
 					}
 				]

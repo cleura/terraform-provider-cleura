@@ -9,7 +9,7 @@ curl -s https://rest.cleura.cloud/apidoc.json | sed -r '/^.*required": \[\].*$/d
 ~/venv/bin/openapi_downgrade "${OPENAPI_SPEC}" "${OPENAPI_SPEC_30}"
 
 # Generate the API client
-oapi-codegen -config client-oapi-config.yaml -include-tags Gardener,Identity "${OPENAPI_SPEC_30}"
+oapi-codegen -config client-oapi-config.yaml -include-tags Gardener,OpenStack_Identity "${OPENAPI_SPEC_30}"
 
 # Generate a JSON provider spec for Terraform SDK
 tfplugingen-openapi generate \

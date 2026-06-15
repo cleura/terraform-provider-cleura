@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cleura/terraform-provider-cleura/internal/provider/resource_shoot"
+	"github.com/cleura/terraform-provider-cleura/internal/provider/resource_gardener_shoot"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -22,33 +22,33 @@ import (
 	cleura "github.com/cleura/terraform-provider-cleura/client"
 )
 
-var _ resource.Resource = (*ShootResource)(nil)
+var _ resource.Resource = (*GardenerShootResource)(nil)
 
-var _ resource.ResourceWithModifyPlan = (*ShootResource)(nil)
-var _ resource.ResourceWithImportState = (*ShootResource)(nil)
+var _ resource.ResourceWithModifyPlan = (*GardenerShootResource)(nil)
+var _ resource.ResourceWithImportState = (*GardenerShootResource)(nil)
 
 func NewGardenerShootResource() resource.Resource {
-	return &ShootResource{}
+	return &GardenerShootResource{}
 }
 
-type ShootResource struct {
+type GardenerShootResource struct {
 	config *cleura.ProviderConfig
 }
 
-func (r *ShootResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *GardenerShootResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	r.config = providerConfigFromResource(ctx, req, resp)
 }
 
-func (r *ShootResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *GardenerShootResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_gardener_shoot"
 }
 
-func (r *ShootResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = resource_shoot.ShootResourceSchema(ctx)
+func (r *GardenerShootResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = resource_gardener_shoot.GardenerShootResourceSchema(ctx)
 }
 
-func WorkersListToMap(workers []resource_shoot.WorkersValue) map[string]resource_shoot.WorkersValue {
-	res := make(map[string]resource_shoot.WorkersValue, len(workers))
+func WorkersListToMap(workers []resource_gardener_shoot.WorkersValue) map[string]resource_gardener_shoot.WorkersValue {
+	res := make(map[string]resource_gardener_shoot.WorkersValue, len(workers))
 
 	for _, worker := range workers {
 		res[worker.Name.ValueString()] = worker
@@ -82,38 +82,38 @@ func workerUpdateBodyWithExplicitEmptyArrays(body api.GardenerEditShootWorker) (
 }
 
 // workerToEditWorker converts Terraform WorkersValue to API GardenerEditShootWorker.
-func workerToEditWorker(ctx context.Context, worker resource_shoot.WorkersValue, diag *diag.Diagnostics) (api.GardenerEditShootWorker, bool) {
-	machineValueable, d := resource_shoot.MachineType{}.ValueFromObject(ctx, worker.Machine)
+func workerToEditWorker(ctx context.Context, worker resource_gardener_shoot.WorkersValue, diag *diag.Diagnostics) (api.GardenerEditShootWorker, bool) {
+	machineValueable, d := resource_gardener_shoot.MachineType{}.ValueFromObject(ctx, worker.Machine)
 	diag.Append(d...)
 	if diag.HasError() {
 		return api.GardenerEditShootWorker{}, false
 	}
-	machine := machineValueable.(resource_shoot.MachineValue)
+	machine := machineValueable.(resource_gardener_shoot.MachineValue)
 
-	var annotations []api.GardenerEditShootAnnotation
+	var annotations []api.GardenerAnnotation
 	if !worker.Annotations.IsNull() && !worker.Annotations.IsUnknown() {
-		var annotationsValues []resource_shoot.AnnotationsValue
+		var annotationsValues []resource_gardener_shoot.AnnotationsValue
 		diag.Append(worker.Annotations.ElementsAs(ctx, &annotationsValues, false)...)
 		if diag.HasError() {
 			return api.GardenerEditShootWorker{}, false
 		}
 		for _, a := range annotationsValues {
-			annotations = append(annotations, api.GardenerEditShootAnnotation{
+			annotations = append(annotations, api.GardenerAnnotation{
 				Key:   a.Key.ValueString(),
 				Value: a.Value.ValueString(),
 			})
 		}
 	}
 
-	var labels []api.GardenerEditShootLabel
+	var labels []api.GardenerLabel
 	if !worker.Labels.IsNull() && !worker.Labels.IsUnknown() {
-		var labelsValues []resource_shoot.LabelsValue
+		var labelsValues []resource_gardener_shoot.LabelsValue
 		diag.Append(worker.Labels.ElementsAs(ctx, &labelsValues, false)...)
 		if diag.HasError() {
 			return api.GardenerEditShootWorker{}, false
 		}
 		for _, l := range labelsValues {
-			labels = append(labels, api.GardenerEditShootLabel{
+			labels = append(labels, api.GardenerLabel{
 				Key:   l.Key.ValueString(),
 				Value: l.Value.ValueString(),
 			})
@@ -122,7 +122,7 @@ func workerToEditWorker(ctx context.Context, worker resource_shoot.WorkersValue,
 
 	var taints []api.GardenerEditShootNodeTaint
 	if !worker.Taints.IsNull() && !worker.Taints.IsUnknown() {
-		var taintsValues []resource_shoot.TaintsValue
+		var taintsValues []resource_gardener_shoot.TaintsValue
 		diag.Append(worker.Taints.ElementsAs(ctx, &taintsValues, false)...)
 		if diag.HasError() {
 			return api.GardenerEditShootWorker{}, false
@@ -131,7 +131,7 @@ func workerToEditWorker(ctx context.Context, worker resource_shoot.WorkersValue,
 			taints = append(taints, api.GardenerEditShootNodeTaint{
 				Key:    t.Key.ValueString(),
 				Value:  t.Value.ValueStringPointer(),
-				Effect: api.GardenerAllowedTaintEffect(t.Effect.ValueString()),
+				Effect: api.GardenerShootWorkerTaintEffect(t.Effect.ValueString()),
 			})
 		}
 	}
@@ -162,36 +162,47 @@ func workerToEditWorker(ctx context.Context, worker resource_shoot.WorkersValue,
 		Name:        worker.Name.ValueStringPointer(),
 		Annotations: &annotations,
 		Labels:      &labels,
-		Machine: api.GardenerEditShootMachine{
-			Type:         machine.MachineType.ValueString(),
-			ImageName:    machine.ImageName.ValueString(),
-			ImageVersion: machine.ImageVersion.ValueString(),
+		Machine: &api.GardenerMachine{
+			Type:         machine.MachineType.ValueStringPointer(),
+			ImageName:    machine.ImageName.ValueStringPointer(),
+			ImageVersion: machine.ImageVersion.ValueStringPointer(),
 		},
 		MaxSurge:   maxSurge,
 		Maximum:    maximum,
 		Minimum:    minimum,
 		Taints:     &taints,
-		VolumeSize: worker.VolumeSize.ValueString(),
+		VolumeSize: worker.VolumeSize.ValueStringPointer(),
 		Zones:      &zones,
 	}, true
 }
 
 // workerToCreateWorker converts Terraform WorkersValue to API GardenerCreateShootWorker.
-func workerToCreateWorker(ctx context.Context, worker resource_shoot.WorkersValue, diag *diag.Diagnostics) (api.GardenerCreateShootWorker, bool) {
+func workerToCreateWorker(ctx context.Context, worker resource_gardener_shoot.WorkersValue, diag *diag.Diagnostics) (api.GardenerCreateShootWorker, bool) {
 	edit, ok := workerToEditWorker(ctx, worker, diag)
 	if !ok {
 		return api.GardenerCreateShootWorker{}, false
 	}
+
+	createTaints := make([]api.GardenerCreateShootNodeTaint, len(*edit.Taints))
+
+	for i, taint := range *edit.Taints {
+		createTaints[i] = api.GardenerCreateShootNodeTaint{
+			Key:    taint.Key,
+			Value:  *taint.Value,
+			Effect: taint.Effect,
+		}
+	}
+
 	return api.GardenerCreateShootWorker{
 		Name:        edit.Name,
 		Annotations: edit.Annotations,
 		Labels:      edit.Labels,
-		Machine:     edit.Machine,
+		Machine:     *edit.Machine,
 		MaxSurge:    edit.MaxSurge,
 		Maximum:     edit.Maximum,
 		Minimum:     edit.Minimum,
-		Taints:      edit.Taints,
-		VolumeSize:  edit.VolumeSize,
+		Taints:      &createTaints,
+		VolumeSize:  *edit.VolumeSize,
 		Zones:       edit.Zones,
 	}, true
 }
@@ -207,7 +218,7 @@ func stringPtrOrNil(v basetypes.StringValue) *string {
 	return &s
 }
 
-func (r *ShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	if !requireProviderConfig(r.config, &resp.Diagnostics, true) {
 		return
 	}
@@ -217,13 +228,13 @@ func (r *ShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 		return
 	}
 
-	var plan resource_shoot.ShootModel
+	var plan resource_gardener_shoot.GardenerShootModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	var state resource_shoot.ShootModel
+	var state resource_gardener_shoot.GardenerShootModel
 
 	if !req.State.Raw.IsNull() {
 		resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -258,7 +269,7 @@ func (r *ShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	if plan.Maintenance.IsUnknown() || plan.Maintenance.IsNull() {
 		if req.State.Raw.IsNull() {
 			// CREATE: apply default value when not configured
-			plan.Maintenance = resource_shoot.NewMaintenanceValueUnknown()
+			plan.Maintenance = resource_gardener_shoot.NewMaintenanceValueUnknown()
 		} else if !state.Maintenance.IsUnknown() {
 			// UPDATE: UseStateForUnknown - copy from state to avoid "known after apply"
 			plan.Maintenance = state.Maintenance
@@ -269,7 +280,7 @@ func (r *ShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	if plan.HibernationSchedules.IsUnknown() || plan.HibernationSchedules.IsNull() {
 		if req.State.Raw.IsNull() {
 			// CREATE: apply default value when not configured
-			plan.HibernationSchedules = basetypes.NewListNull(resource_shoot.NewHibernationSchedulesValueNull().Type(ctx))
+			plan.HibernationSchedules = basetypes.NewListNull(resource_gardener_shoot.NewHibernationSchedulesValueNull().Type(ctx))
 		} else if !state.HibernationSchedules.IsUnknown() {
 			// UPDATE: UseStateForUnknown - copy from state to avoid "known after apply"
 			plan.HibernationSchedules = state.HibernationSchedules
@@ -288,22 +299,22 @@ func (r *ShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	}
 
 	// Read the planned and state InfrastructureConfig into more usable datatypes
-	infraConfigValuable, diags := resource_shoot.InfrastructureConfigType{}.ValueFromObject(ctx, plan.ShootProvider.InfrastructureConfig)
+	infraConfigValuable, diags := resource_gardener_shoot.InfrastructureConfigType{}.ValueFromObject(ctx, plan.ShootProvider.InfrastructureConfig)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	infraConfigPlan := infraConfigValuable.(resource_shoot.InfrastructureConfigValue)
+	infraConfigPlan := infraConfigValuable.(resource_gardener_shoot.InfrastructureConfigValue)
 
 	// Load the InfrastructureConfig from state if it exists
-	infraConfigState := resource_shoot.NewInfrastructureConfigValueNull()
+	infraConfigState := resource_gardener_shoot.NewInfrastructureConfigValueNull()
 	if !state.ShootProvider.InfrastructureConfig.IsNull() {
-		infraConfigValuable, diags = resource_shoot.InfrastructureConfigType{}.ValueFromObject(ctx, state.ShootProvider.InfrastructureConfig)
+		infraConfigValuable, diags = resource_gardener_shoot.InfrastructureConfigType{}.ValueFromObject(ctx, state.ShootProvider.InfrastructureConfig)
 		resp.Diagnostics.Append(diags...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
-		infraConfigState = infraConfigValuable.(resource_shoot.InfrastructureConfigValue)
+		infraConfigState = infraConfigValuable.(resource_gardener_shoot.InfrastructureConfigValue)
 	}
 
 	// Handle NetworkId: Optional+Computed without schema default
@@ -348,13 +359,13 @@ func (r *ShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	plan.ShootProvider.InfrastructureConfig = infraConfigObject
 
 	// Handle Workers: Optional+Computed without schema default
-	var workersListPlan []resource_shoot.WorkersValue
+	var workersListPlan []resource_gardener_shoot.WorkersValue
 	resp.Diagnostics.Append(plan.ShootProvider.Workers.ElementsAs(ctx, &workersListPlan, false)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	var workersListState []resource_shoot.WorkersValue
+	var workersListState []resource_gardener_shoot.WorkersValue
 	if !state.ShootProvider.Workers.IsNull() {
 		resp.Diagnostics.Append(state.ShootProvider.Workers.ElementsAs(ctx, &workersListState, false)...)
 		if resp.Diagnostics.HasError() {
@@ -409,7 +420,7 @@ func (r *ShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 
 		if workerPlan.Taints.IsUnknown() || workerPlan.Taints.IsNull() {
 			// Not managed by Terraform: send empty array to remove server-side values
-			emptyTaints, d := basetypes.NewListValueFrom(ctx, resource_shoot.TaintsValue{}.Type(ctx), []resource_shoot.TaintsValue{})
+			emptyTaints, d := basetypes.NewListValueFrom(ctx, resource_gardener_shoot.TaintsValue{}.Type(ctx), []resource_gardener_shoot.TaintsValue{})
 			resp.Diagnostics.Append(d...)
 			if !resp.Diagnostics.HasError() {
 				workersListPlan[i].Taints = emptyTaints
@@ -428,7 +439,7 @@ func (r *ShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 
 		if workerPlan.Annotations.IsUnknown() || workerPlan.Annotations.IsNull() {
 			// Not managed by Terraform: send empty array to remove server-side values
-			emptyAnnotations, d := basetypes.NewListValueFrom(ctx, resource_shoot.AnnotationsValue{}.Type(ctx), []resource_shoot.AnnotationsValue{})
+			emptyAnnotations, d := basetypes.NewListValueFrom(ctx, resource_gardener_shoot.AnnotationsValue{}.Type(ctx), []resource_gardener_shoot.AnnotationsValue{})
 			resp.Diagnostics.Append(d...)
 			if !resp.Diagnostics.HasError() {
 				workersListPlan[i].Annotations = emptyAnnotations
@@ -437,7 +448,7 @@ func (r *ShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 
 		if workerPlan.Labels.IsUnknown() || workerPlan.Labels.IsNull() {
 			// Not managed by Terraform: send empty array to remove server-side values
-			emptyLabels, d := basetypes.NewListValueFrom(ctx, resource_shoot.LabelsValue{}.Type(ctx), []resource_shoot.LabelsValue{})
+			emptyLabels, d := basetypes.NewListValueFrom(ctx, resource_gardener_shoot.LabelsValue{}.Type(ctx), []resource_gardener_shoot.LabelsValue{})
 			resp.Diagnostics.Append(d...)
 			if !resp.Diagnostics.HasError() {
 				workersListPlan[i].Labels = emptyLabels
@@ -445,7 +456,7 @@ func (r *ShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 		}
 	}
 
-	workersListValue, diags := basetypes.NewListValueFrom(ctx, resource_shoot.WorkersValue{}.Type(ctx), workersListPlan)
+	workersListValue, diags := basetypes.NewListValueFrom(ctx, resource_gardener_shoot.WorkersValue{}.Type(ctx), workersListPlan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -455,12 +466,12 @@ func (r *ShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
 }
 
-func (r *ShootResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	if !requireProviderConfig(r.config, &resp.Diagnostics, true) {
 		return
 	}
 
-	var data resource_shoot.ShootModel
+	var data resource_gardener_shoot.GardenerShootModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -469,7 +480,7 @@ func (r *ShootResource) Create(ctx context.Context, req resource.CreateRequest, 
 
 	var workers []api.GardenerCreateShootWorker
 
-	var workersList []resource_shoot.WorkersValue
+	var workersList []resource_gardener_shoot.WorkersValue
 	resp.Diagnostics.Append(data.ShootProvider.Workers.ElementsAs(ctx, &workersList, false)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -483,12 +494,12 @@ func (r *ShootResource) Create(ctx context.Context, req resource.CreateRequest, 
 		workers = append(workers, workerGroup)
 	}
 
-	infraConfigValuable, diags := resource_shoot.InfrastructureConfigType{}.ValueFromObject(ctx, data.ShootProvider.InfrastructureConfig)
+	infraConfigValuable, diags := resource_gardener_shoot.InfrastructureConfigType{}.ValueFromObject(ctx, data.ShootProvider.InfrastructureConfig)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	infraConfig := infraConfigValuable.(resource_shoot.InfrastructureConfigValue)
+	infraConfig := infraConfigValuable.(resource_gardener_shoot.InfrastructureConfigValue)
 
 	allowedCidrs := []string{}
 	if !data.AllowedCidrs.IsNull() && !data.AllowedCidrs.IsUnknown() {
@@ -498,7 +509,7 @@ func (r *ShootResource) Create(ctx context.Context, req resource.CreateRequest, 
 		}
 	}
 
-	var hibernationSchedulesList []resource_shoot.HibernationSchedulesValue
+	var hibernationSchedulesList []resource_gardener_shoot.HibernationSchedulesValue
 	if !data.HibernationSchedules.IsNull() && !data.HibernationSchedules.IsUnknown() {
 		resp.Diagnostics.Append(data.HibernationSchedules.ElementsAs(ctx, &hibernationSchedulesList, false)...)
 		if resp.Diagnostics.HasError() {
@@ -506,25 +517,25 @@ func (r *ShootResource) Create(ctx context.Context, req resource.CreateRequest, 
 		}
 	}
 
-	var maintenanceAutoUpdate resource_shoot.AutoUpdateValue
+	var maintenanceAutoUpdate resource_gardener_shoot.AutoUpdateValue
 	hasAutoUpdate := !data.Maintenance.AutoUpdate.IsNull() && !data.Maintenance.AutoUpdate.IsUnknown()
 	if hasAutoUpdate {
-		maintenanceAutoUpdateValuable, diags := resource_shoot.AutoUpdateType{}.ValueFromObject(ctx, data.Maintenance.AutoUpdate)
+		maintenanceAutoUpdateValuable, diags := resource_gardener_shoot.AutoUpdateType{}.ValueFromObject(ctx, data.Maintenance.AutoUpdate)
 		resp.Diagnostics.Append(diags...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
-		maintenanceAutoUpdate = maintenanceAutoUpdateValuable.(resource_shoot.AutoUpdateValue)
+		maintenanceAutoUpdate = maintenanceAutoUpdateValuable.(resource_gardener_shoot.AutoUpdateValue)
 	}
-	var maintenanceTimeWindow resource_shoot.TimeWindowValue
+	var maintenanceTimeWindow resource_gardener_shoot.TimeWindowValue
 	hasTimeWindow := !data.Maintenance.TimeWindow.IsNull() && !data.Maintenance.TimeWindow.IsUnknown()
 	if hasTimeWindow {
-		maintenanceTimeWindowValuable, diags := resource_shoot.TimeWindowType{}.ValueFromObject(ctx, data.Maintenance.TimeWindow)
+		maintenanceTimeWindowValuable, diags := resource_gardener_shoot.TimeWindowType{}.ValueFromObject(ctx, data.Maintenance.TimeWindow)
 		resp.Diagnostics.Append(diags...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
-		maintenanceTimeWindow = maintenanceTimeWindowValuable.(resource_shoot.TimeWindowValue)
+		maintenanceTimeWindow = maintenanceTimeWindowValuable.(resource_gardener_shoot.TimeWindowValue)
 	}
 
 	var hibernationSchedules []api.GardenerCreateShootHibernationSchedule
@@ -544,13 +555,13 @@ func (r *ShootResource) Create(ctx context.Context, req resource.CreateRequest, 
 	if hasAutoUpdate || hasTimeWindow {
 		m := &api.GardenerCreateShootMaintenance{}
 		if hasAutoUpdate {
-			m.AutoUpdate = &api.GardenerEditShootAutoUpdate{
-				KubernetesVersion:   maintenanceAutoUpdate.KubernetesVersion.ValueBool(),
-				MachineImageVersion: maintenanceAutoUpdate.MachineImageVersion.ValueBool(),
+			m.AutoUpdate = &api.GardenerCreateShootAutoUpdate{
+				KubernetesVersion:   maintenanceAutoUpdate.KubernetesVersion.ValueBoolPointer(),
+				MachineImageVersion: maintenanceAutoUpdate.MachineImageVersion.ValueBoolPointer(),
 			}
 		}
 		if hasTimeWindow {
-			m.TimeWindow = &api.GardenerEditShootTimeWindow{
+			m.TimeWindow = &api.GardenerTimeWindow{
 				Begin: maintenanceTimeWindow.Begin.ValueString(),
 				End:   maintenanceTimeWindow.End.ValueString(),
 			}
@@ -613,12 +624,12 @@ func (r *ShootResource) Create(ctx context.Context, req resource.CreateRequest, 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *ShootResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+func (r *GardenerShootResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	if !requireProviderConfig(r.config, &resp.Diagnostics, true) {
 		return
 	}
 
-	var data resource_shoot.ShootModel
+	var data resource_gardener_shoot.GardenerShootModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -636,13 +647,13 @@ func (r *ShootResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	}
 }
 
-func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	if !requireProviderConfig(r.config, &resp.Diagnostics, true) {
 		return
 	}
 
-	var data resource_shoot.ShootModel
-	var state resource_shoot.ShootModel
+	var data resource_gardener_shoot.GardenerShootModel
+	var state resource_gardener_shoot.GardenerShootModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -662,7 +673,7 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		}
 	}
 
-	var hibernationSchedulesList []resource_shoot.HibernationSchedulesValue
+	var hibernationSchedulesList []resource_gardener_shoot.HibernationSchedulesValue
 	if !data.HibernationSchedules.IsNull() && !data.HibernationSchedules.IsUnknown() {
 		resp.Diagnostics.Append(data.HibernationSchedules.ElementsAs(ctx, &hibernationSchedulesList, false)...)
 		if resp.Diagnostics.HasError() {
@@ -670,19 +681,19 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		}
 	}
 
-	maintenanceAutoUpdateValuable, diags := resource_shoot.AutoUpdateType{}.ValueFromObject(ctx, data.Maintenance.AutoUpdate)
+	maintenanceAutoUpdateValuable, diags := resource_gardener_shoot.AutoUpdateType{}.ValueFromObject(ctx, data.Maintenance.AutoUpdate)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	maintenanceAutoUpdate := maintenanceAutoUpdateValuable.(resource_shoot.AutoUpdateValue)
+	maintenanceAutoUpdate := maintenanceAutoUpdateValuable.(resource_gardener_shoot.AutoUpdateValue)
 
-	maintenanceTimeWindowValuable, diags := resource_shoot.TimeWindowType{}.ValueFromObject(ctx, data.Maintenance.TimeWindow)
+	maintenanceTimeWindowValuable, diags := resource_gardener_shoot.TimeWindowType{}.ValueFromObject(ctx, data.Maintenance.TimeWindow)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	maintenanceTimeWindow := maintenanceTimeWindowValuable.(resource_shoot.TimeWindowValue)
+	maintenanceTimeWindow := maintenanceTimeWindowValuable.(resource_gardener_shoot.TimeWindowValue)
 
 	var hibernationSchedules []api.GardenerEditShootHibernationSchedule
 	for _, hs := range hibernationSchedulesList {
@@ -707,7 +718,7 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 				KubernetesVersion:   maintenanceAutoUpdate.KubernetesVersion.ValueBool(),
 				MachineImageVersion: maintenanceAutoUpdate.MachineImageVersion.ValueBool(),
 			},
-			TimeWindow: api.GardenerEditShootTimeWindow{
+			TimeWindow: api.GardenerTimeWindow{
 				Begin: maintenanceTimeWindow.Begin.ValueString(),
 				End:   maintenanceTimeWindow.End.ValueString(),
 			},
@@ -741,13 +752,13 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	// Match by position/order (plan[i] ↔ state[i])—ordering is critical for state consistency.
 	// Update overlapping pairs, delete excess state, create excess plan.
 
-	var workersListPlan []resource_shoot.WorkersValue
+	var workersListPlan []resource_gardener_shoot.WorkersValue
 	resp.Diagnostics.Append(data.ShootProvider.Workers.ElementsAs(ctx, &workersListPlan, false)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	var workersListState []resource_shoot.WorkersValue
+	var workersListState []resource_gardener_shoot.WorkersValue
 	if !state.ShootProvider.Workers.IsNull() && !state.ShootProvider.Workers.IsUnknown() {
 		resp.Diagnostics.Append(state.ShootProvider.Workers.ElementsAs(ctx, &workersListState, false)...)
 		if resp.Diagnostics.HasError() {
@@ -859,7 +870,7 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	}
 }
 
-func (r *ShootResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+func (r *GardenerShootResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	if !requireProviderConfig(r.config, &resp.Diagnostics, true) {
 		return
 	}
@@ -876,12 +887,12 @@ func (r *ShootResource) ImportState(ctx context.Context, req resource.ImportStat
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), shootName)...)
 }
 
-func (r *ShootResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+func (r *GardenerShootResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	if !requireProviderConfig(r.config, &resp.Diagnostics, true) {
 		return
 	}
 
-	var data resource_shoot.ShootModel
+	var data resource_gardener_shoot.GardenerShootModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -912,7 +923,7 @@ func (r *ShootResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 	}
 }
 
-func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootCluster *api.GardenerShootShoot, data *resource_shoot.ShootModel, diag *diag.Diagnostics) {
+func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootCluster *api.GardenerShootShoot, data *resource_gardener_shoot.GardenerShootModel, diag *diag.Diagnostics) {
 	// Fetch from API when shootCluster not provided (e.g. Read, Update after worker changes)
 	if shootCluster == nil {
 		if cfg == nil || cfg.Client == nil {
@@ -978,7 +989,7 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 	}
 
 	infraConfigObj, diags := types.ObjectValue(
-		resource_shoot.InfrastructureConfigValue{}.AttributeTypes(ctx),
+		resource_gardener_shoot.InfrastructureConfigValue{}.AttributeTypes(ctx),
 		map[string]attr.Value{
 			"floating_pool_name":   basetypes.NewStringValue(apiInfra.FloatingPoolName),
 			"network_id":           networkId,
@@ -994,24 +1005,24 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 	loadBalancerProviderVal := basetypes.NewStringValue(shootCluster.ShootProvider.ControlPlaneConfig.LoadBalancerProvider)
 
 	if shootCluster.Hibernation != nil {
-		hibernationSchedules := []resource_shoot.HibernationSchedulesValue{}
+		hibernationSchedules := []resource_gardener_shoot.HibernationSchedulesValue{}
 		for _, schedule := range shootCluster.Hibernation.Schedules {
-			hibernationSchedules = append(hibernationSchedules, resource_shoot.HibernationSchedulesValue{
+			hibernationSchedules = append(hibernationSchedules, resource_gardener_shoot.HibernationSchedulesValue{
 				Start: basetypes.NewStringValue(*schedule.Start),
 				End:   basetypes.NewStringValue(*schedule.End),
 			})
 		}
-		data.HibernationSchedules, diags = basetypes.NewListValueFrom(ctx, resource_shoot.HibernationSchedulesValue{}.Type(ctx), hibernationSchedules)
+		data.HibernationSchedules, diags = basetypes.NewListValueFrom(ctx, resource_gardener_shoot.HibernationSchedulesValue{}.Type(ctx), hibernationSchedules)
 		diag.Append(diags...)
 		if diag.HasError() {
 			return
 		}
 	} else {
-		data.HibernationSchedules = basetypes.NewListNull(resource_shoot.HibernationSchedulesValue{}.Type(ctx))
+		data.HibernationSchedules = basetypes.NewListNull(resource_gardener_shoot.HibernationSchedulesValue{}.Type(ctx))
 	}
 
 	autoUpdateObj, diags := types.ObjectValue(
-		resource_shoot.AutoUpdateValue{}.AttributeTypes(ctx),
+		resource_gardener_shoot.AutoUpdateValue{}.AttributeTypes(ctx),
 		map[string]attr.Value{
 			"kubernetes_version":    basetypes.NewBoolValue(shootCluster.Maintenance.AutoUpdate.KubernetesVersion),
 			"machine_image_version": basetypes.NewBoolValue(shootCluster.Maintenance.AutoUpdate.MachineImageVersion),
@@ -1023,7 +1034,7 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 	}
 
 	timeWindowObj, diags := types.ObjectValue(
-		resource_shoot.TimeWindowValue{}.AttributeTypes(ctx),
+		resource_gardener_shoot.TimeWindowValue{}.AttributeTypes(ctx),
 		map[string]attr.Value{
 			"begin": basetypes.NewStringValue(shootCluster.Maintenance.TimeWindow.Begin),
 			"end":   basetypes.NewStringValue(shootCluster.Maintenance.TimeWindow.End),
@@ -1034,8 +1045,8 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 		return
 	}
 
-	maintenanceVal, diags := resource_shoot.NewMaintenanceValue(
-		resource_shoot.MaintenanceValue{}.AttributeTypes(ctx),
+	maintenanceVal, diags := resource_gardener_shoot.NewMaintenanceValue(
+		resource_gardener_shoot.MaintenanceValue{}.AttributeTypes(ctx),
 		map[string]attr.Value{
 			"auto_update": autoUpdateObj,
 			"time_window": timeWindowObj,
@@ -1048,13 +1059,13 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 	data.Maintenance = maintenanceVal
 
 	// Build workers from API response (data may be empty during import)
-	var workersList []resource_shoot.WorkersValue
+	var workersList []resource_gardener_shoot.WorkersValue
 	for _, worker := range shootCluster.ShootProvider.Workers {
-		annotations := []resource_shoot.AnnotationsValue{}
+		annotations := []resource_gardener_shoot.AnnotationsValue{}
 		if worker.Annotations != nil {
 			for _, a := range *worker.Annotations {
-				av, d := resource_shoot.NewAnnotationsValue(
-					resource_shoot.AnnotationsValue{}.AttributeTypes(ctx),
+				av, d := resource_gardener_shoot.NewAnnotationsValue(
+					resource_gardener_shoot.AnnotationsValue{}.AttributeTypes(ctx),
 					map[string]attr.Value{
 						"key":   basetypes.NewStringValue(a.Key),
 						"value": basetypes.NewStringValue(a.Value),
@@ -1067,21 +1078,21 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 				annotations = append(annotations, av)
 			}
 		}
-		annotationsListValue, diags := basetypes.NewListValueFrom(ctx, resource_shoot.AnnotationsValue{}.Type(ctx), annotations)
+		annotationsListValue, diags := basetypes.NewListValueFrom(ctx, resource_gardener_shoot.AnnotationsValue{}.Type(ctx), annotations)
 		diag.Append(diags...)
 		if diag.HasError() {
 			return
 		}
 
-		labels := []resource_shoot.LabelsValue{}
+		labels := []resource_gardener_shoot.LabelsValue{}
 		if worker.Labels != nil {
 			for _, l := range *worker.Labels {
 				labelVal := ""
 				if l.Value != nil {
 					labelVal = *l.Value
 				}
-				lv, d := resource_shoot.NewLabelsValue(
-					resource_shoot.LabelsValue{}.AttributeTypes(ctx),
+				lv, d := resource_gardener_shoot.NewLabelsValue(
+					resource_gardener_shoot.LabelsValue{}.AttributeTypes(ctx),
 					map[string]attr.Value{
 						"key":   basetypes.NewStringValue(l.Key),
 						"value": basetypes.NewStringValue(labelVal),
@@ -1094,17 +1105,17 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 				labels = append(labels, lv)
 			}
 		}
-		labelsListValue, diags := basetypes.NewListValueFrom(ctx, resource_shoot.LabelsValue{}.Type(ctx), labels)
+		labelsListValue, diags := basetypes.NewListValueFrom(ctx, resource_gardener_shoot.LabelsValue{}.Type(ctx), labels)
 		diag.Append(diags...)
 		if diag.HasError() {
 			return
 		}
 
-		taints := []resource_shoot.TaintsValue{}
+		taints := []resource_gardener_shoot.TaintsValue{}
 		if worker.Taints != nil {
 			for _, t := range *worker.Taints {
-				tv, d := resource_shoot.NewTaintsValue(
-					resource_shoot.TaintsValue{}.AttributeTypes(ctx),
+				tv, d := resource_gardener_shoot.NewTaintsValue(
+					resource_gardener_shoot.TaintsValue{}.AttributeTypes(ctx),
 					map[string]attr.Value{
 						"key":    basetypes.NewStringValue(t.Key),
 						"value":  basetypes.NewStringValue(t.Value),
@@ -1118,7 +1129,7 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 				taints = append(taints, tv)
 			}
 		}
-		taintsListValue, diags := basetypes.NewListValueFrom(ctx, resource_shoot.TaintsValue{}.Type(ctx), taints)
+		taintsListValue, diags := basetypes.NewListValueFrom(ctx, resource_gardener_shoot.TaintsValue{}.Type(ctx), taints)
 		diag.Append(diags...)
 		if diag.HasError() {
 			return
@@ -1131,7 +1142,7 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 		}
 
 		machineObj, diags := types.ObjectValue(
-			resource_shoot.MachineValue{}.AttributeTypes(ctx),
+			resource_gardener_shoot.MachineValue{}.AttributeTypes(ctx),
 			map[string]attr.Value{
 				"image_name":    basetypes.NewStringValue(worker.Machine.Image.Name),
 				"image_version": basetypes.NewStringValue(worker.Machine.Image.Version),
@@ -1148,8 +1159,8 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 			maxUnavailable = int64(*worker.MaxUnavailable)
 		}
 
-		workerVal, diags := resource_shoot.NewWorkersValue(
-			resource_shoot.WorkersValue{}.AttributeTypes(ctx),
+		workerVal, diags := resource_gardener_shoot.NewWorkersValue(
+			resource_gardener_shoot.WorkersValue{}.AttributeTypes(ctx),
 			map[string]attr.Value{
 				"annotations":     annotationsListValue,
 				"labels":          labelsListValue,
@@ -1171,14 +1182,14 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 		workersList = append(workersList, workerVal)
 	}
 
-	workersListValue, diags := basetypes.NewListValueFrom(ctx, resource_shoot.WorkersValue{}.Type(ctx), workersList)
+	workersListValue, diags := basetypes.NewListValueFrom(ctx, resource_gardener_shoot.WorkersValue{}.Type(ctx), workersList)
 	diag.Append(diags...)
 	if diag.HasError() {
 		return
 	}
 
-	shootProviderVal, diags := resource_shoot.NewShootProviderValue(
-		resource_shoot.ShootProviderValue{}.AttributeTypes(ctx),
+	shootProviderVal, diags := resource_gardener_shoot.NewShootProviderValue(
+		resource_gardener_shoot.ShootProviderValue{}.AttributeTypes(ctx),
 		map[string]attr.Value{
 			"infrastructure_config":  infraConfigObj,
 			"load_balancer_provider": loadBalancerProviderVal,
