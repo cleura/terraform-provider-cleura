@@ -15,8 +15,11 @@ var (
 )
 
 func testAccPreCheck(t *testing.T) {
+	if os.Getenv("CLEURA_API_TOKEN") == "" || os.Getenv("CLEURA_API_USERNAME") == "" {
+		t.Fatal("CLEURA_API_TOKEN and CLEURA_API_USERNAME must be set for acceptance tests")
+	}
 
-	if os.Getenv("CLEURA_API_TOKEN") == "" || os.Getenv("CLEURA_API_USERNAME") == "" || os.Getenv("CLEURA_API_URL") == "" {
-		t.Fatal("CLEURA_API_TOKEN, CLEURA_API_USERNAME and CLEURA_API_URL must be set for acceptance tests")
+	if os.Getenv("CLEURA_API_URL") == "" && os.Getenv("CLEURA_CLOUD") == "" {
+		t.Fatal("Set CLEURA_CLOUD or CLEURA_API_URL for acceptance tests")
 	}
 }

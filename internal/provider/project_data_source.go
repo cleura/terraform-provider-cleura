@@ -20,30 +20,16 @@ func NewProjectDataSource() datasource.DataSource {
 }
 
 type projectDataSource struct {
-	client *cleura.Client
+	config *cleura.ProviderConfig
 }
 
 type projectDataSourceModel struct {
-	Id                 types.String `tfsdk:"id"`
-	Name               types.String `tfsdk:"name"`
-	OpenStackRegionTag types.String `tfsdk:"open_stack_region_tag"`
+	Id   types.String `tfsdk:"id"`
+	Name types.String `tfsdk:"name"`
 }
 
 func (d *projectDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	client, ok := req.ProviderData.(*cleura.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *cleura.Client, got %T", req.ProviderData),
-		)
-		return
-	}
-
-	d.client = client
+	d.config = providerConfigFromDataSource(ctx, req, resp)
 }
 
 func (d *projectDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -54,30 +40,30 @@ func (d *projectDataSource) Schema(ctx context.Context, req datasource.SchemaReq
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Computed: true,
+				Computed:    true,
+				Description: "OpenStack project ID.",
 			},
 			"name": schema.StringAttribute{
-				Required: true,
-			},
-			"open_stack_region_tag": schema.StringAttribute{
-				Required: true,
+				Required:    true,
+				Description: "OpenStack project name to look up in the provider region.",
 			},
 		},
 	}
 }
 
 func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	if !requireProviderConfig(d.config, &resp.Diagnostics, false) {
+		return
+	}
+
 	var data projectDataSourceModel
 
-	// Read Terraform configuration data into the model
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Read API call logic
-	response, err := d.client.IdentityListRegionsWithProjects(ctx)
+	response, err := d.config.Client.IdentityListRegionsWithProjects(ctx)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to list regions and projects", err.Error())
 		return
@@ -103,13 +89,15 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 
 	var region *api.IdentityRegionWithProjects
 	for _, r := range regions {
-		if r.Region.Tag == data.OpenStackRegionTag.ValueString() {
+		if r.Region.Tag == d.config.Region {
 			region = &r
 		}
 	}
-	// If no region was found, return an error
 	if region == nil {
-		resp.Diagnostics.AddError("Region not found", fmt.Sprintf("The region tag %s could not be found, update your query to match one of the available regions", data.OpenStackRegionTag.ValueString()))
+		resp.Diagnostics.AddError(
+			"Region not found",
+			fmt.Sprintf("The region %q from the provider configuration could not be found.", d.config.Region),
+		)
 		return
 	}
 
@@ -119,14 +107,15 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 			project = &p
 		}
 	}
-	// If no project was found, return an error
 	if project == nil {
-		resp.Diagnostics.AddError("Project not found", fmt.Sprintf("No project named %s was found. Make sure the name is correct and the authenticated user has access to the project", data.OpenStackRegionTag.ValueString()))
+		resp.Diagnostics.AddError(
+			"Project not found",
+			fmt.Sprintf("No project named %q was found in region %q.", data.Name.ValueString(), d.config.Region),
+		)
 		return
 	}
 
 	data.Id = types.StringValue(project.Id)
 
-	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }

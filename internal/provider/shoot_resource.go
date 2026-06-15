@@ -27,33 +27,20 @@ var _ resource.Resource = (*ShootResource)(nil)
 var _ resource.ResourceWithModifyPlan = (*ShootResource)(nil)
 var _ resource.ResourceWithImportState = (*ShootResource)(nil)
 
-func NewShootResource() resource.Resource {
+func NewGardenerShootResource() resource.Resource {
 	return &ShootResource{}
 }
 
 type ShootResource struct {
-	client *cleura.Client
+	config *cleura.ProviderConfig
 }
 
 func (r *ShootResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	client, ok := req.ProviderData.(*cleura.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *cleura.Client, got %T", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = client
+	r.config = providerConfigFromResource(ctx, req, resp)
 }
 
 func (r *ShootResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_shoot"
+	resp.TypeName = req.ProviderTypeName + "_gardener_shoot"
 }
 
 func (r *ShootResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -221,6 +208,10 @@ func stringPtrOrNil(v basetypes.StringValue) *string {
 }
 
 func (r *ShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if !requireProviderConfig(r.config, &resp.Diagnostics, true) {
+		return
+	}
+
 	// Destroy: plan is null, nothing to modify
 	if req.Plan.Raw.IsNull() {
 		return
@@ -465,6 +456,10 @@ func (r *ShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 }
 
 func (r *ShootResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	if !requireProviderConfig(r.config, &resp.Diagnostics, true) {
+		return
+	}
+
 	var data resource_shoot.ShootModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -581,7 +576,7 @@ func (r *ShootResource) Create(ctx context.Context, req resource.CreateRequest, 
 		HibernationSchedules: hibernationSchedulesPtr,
 		Maintenance:          maintenancePtr,
 	}
-	response, err := r.client.GardenerCreateShoot(ctx, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), reqBody)
+	response, err := r.config.Client.GardenerCreateShoot(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, reqBody)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to create Gardener cluster", err.Error())
 		return
@@ -605,12 +600,12 @@ func (r *ShootResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
-	SetShootStateValues(ctx, r.client, &shootCluster, &data, &resp.Diagnostics)
+	SetShootStateValues(ctx, r.config, &shootCluster, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.client, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), data.Name.ValueString(), false)...)
+	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -619,6 +614,10 @@ func (r *ShootResource) Create(ctx context.Context, req resource.CreateRequest, 
 }
 
 func (r *ShootResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	if !requireProviderConfig(r.config, &resp.Diagnostics, true) {
+		return
+	}
+
 	var data resource_shoot.ShootModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
@@ -626,7 +625,7 @@ func (r *ShootResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		return
 	}
 
-	SetShootStateValues(ctx, r.client, nil, &data, &resp.Diagnostics)
+	SetShootStateValues(ctx, r.config, nil, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -638,6 +637,10 @@ func (r *ShootResource) Read(ctx context.Context, req resource.ReadRequest, resp
 }
 
 func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	if !requireProviderConfig(r.config, &resp.Diagnostics, true) {
+		return
+	}
+
 	var data resource_shoot.ShootModel
 	var state resource_shoot.ShootModel
 
@@ -711,7 +714,7 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		},
 	}
 
-	response, err := r.client.GardenerEditShoot(ctx, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), data.Name.ValueString(), reqBody)
+	response, err := r.config.Client.GardenerEditShoot(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), reqBody)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to update Gardener cluster", err.Error())
 		return
@@ -729,7 +732,7 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 
-	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.client, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), data.Name.ValueString(), false)...)
+	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -774,7 +777,7 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			return
 		}
 		existingName := stateWorker.Name.ValueString()
-		updateResp, err := r.client.GardenerUpdateWorkerWithBody(ctx, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), data.Name.ValueString(), existingName, "application/json", bytes.NewReader(bodyBytes))
+		updateResp, err := r.config.Client.GardenerUpdateWorkerWithBody(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), existingName, "application/json", bytes.NewReader(bodyBytes))
 		if err != nil {
 			resp.Diagnostics.AddError("Failed to update worker group", fmt.Sprintf("worker %q: %s", existingName, err.Error()))
 			return
@@ -786,7 +789,7 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			return
 		}
 		updateResp.Body.Close()
-		resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.client, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), data.Name.ValueString(), false)...)
+		resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
@@ -795,7 +798,7 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	// 2. Delete excess state workers (indices nOverlap..len(workersListState)-1)
 	for si := nOverlap; si < len(workersListState); si++ {
 		name := workersListState[si].Name.ValueString()
-		delResp, err := r.client.GardenerDeleteWorker(ctx, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), data.Name.ValueString(), name)
+		delResp, err := r.config.Client.GardenerDeleteWorker(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), name)
 		if err != nil {
 			resp.Diagnostics.AddError("Failed to delete worker group", fmt.Sprintf("worker %q: %s", name, err.Error()))
 			return
@@ -807,7 +810,7 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			return
 		}
 		delResp.Body.Close()
-		resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.client, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), data.Name.ValueString(), false)...)
+		resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
@@ -821,7 +824,7 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			return
 		}
 		name := worker.Name.ValueString()
-		createResp, err := r.client.GardenerCreateWorker(ctx, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), data.Name.ValueString(), createBody)
+		createResp, err := r.config.Client.GardenerCreateWorker(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), createBody)
 		if err != nil {
 			resp.Diagnostics.AddError("Failed to create worker group", fmt.Sprintf("worker %q: %s", name, err.Error()))
 			return
@@ -833,19 +836,19 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			return
 		}
 		createResp.Body.Close()
-		resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.client, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), data.Name.ValueString(), false)...)
+		resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
 	}
 
-	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.client, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), data.Name.ValueString(), false)...)
+	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	// Refresh state from API so it reflects the applied changes (e.g. empty annotations/labels/taints)
-	SetShootStateValues(ctx, r.client, nil, &data, &resp.Diagnostics)
+	SetShootStateValues(ctx, r.config, nil, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -857,22 +860,27 @@ func (r *ShootResource) Update(ctx context.Context, req resource.UpdateRequest, 
 }
 
 func (r *ShootResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	idParts := strings.Split(req.ID, ",")
-	if len(idParts) != 4 || idParts[0] == "" || idParts[1] == "" || idParts[2] == "" || idParts[3] == "" {
+	if !requireProviderConfig(r.config, &resp.Diagnostics, true) {
+		return
+	}
+
+	shootName := strings.TrimSpace(req.ID)
+	if shootName == "" {
 		resp.Diagnostics.AddError(
 			"Unexpected Import Identifier",
-			fmt.Sprintf("Expected import identifier with format: gardener_region_tag,open_stack_region_tag,open_stack_project_id,shoot_name. Got: %q", req.ID),
+			"Expected the shoot name. cloud, region, and project_id are taken from the provider configuration.",
 		)
 		return
 	}
 
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("gardener_region_tag"), idParts[0])...)
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("open_stack_region_tag"), idParts[1])...)
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("open_stack_project_id"), idParts[2])...)
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), idParts[3])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), shootName)...)
 }
 
 func (r *ShootResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	if !requireProviderConfig(r.config, &resp.Diagnostics, true) {
+		return
+	}
+
 	var data resource_shoot.ShootModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
@@ -880,7 +888,7 @@ func (r *ShootResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 		return
 	}
 
-	response, err := r.client.GardenerDeleteShoot(ctx, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), data.Name.ValueString())
+	response, err := r.config.Client.GardenerDeleteShoot(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to delete Gardener cluster", err.Error())
 		return
@@ -898,20 +906,20 @@ func (r *ShootResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 		return
 	}
 
-	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.client, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), data.Name.ValueString(), true)...)
+	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), true)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 }
 
-func SetShootStateValues(ctx context.Context, client *cleura.Client, shootCluster *api.GardenerShootShoot, data *resource_shoot.ShootModel, diag *diag.Diagnostics) {
+func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootCluster *api.GardenerShootShoot, data *resource_shoot.ShootModel, diag *diag.Diagnostics) {
 	// Fetch from API when shootCluster not provided (e.g. Read, Update after worker changes)
 	if shootCluster == nil {
-		if client == nil {
-			diag.AddError("Missing client", "SetShootStateValues requires client when shootCluster is nil")
+		if cfg == nil || cfg.Client == nil {
+			diag.AddError("Missing provider config", "SetShootStateValues requires a configured Cleura provider")
 			return
 		}
-		resp, err := client.GardenerGetShoot(ctx, data.GardenerRegionTag.ValueString(), data.OpenStackRegionTag.ValueString(), data.OpenStackProjectId.ValueString(), data.Name.ValueString())
+		resp, err := cfg.Client.GardenerGetShoot(ctx, cfg.Cloud, cfg.Region, cfg.ProjectID, data.Name.ValueString())
 		if err != nil {
 			diag.AddError("Failed to get Gardener cluster", err.Error())
 			return

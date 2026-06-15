@@ -21,7 +21,7 @@ func NewClientWithCredentials(url, username, token string) (*Client, error) {
 		}),
 	)
 	if err != nil {
-		panic("failed to initialize the Cleura client")
+		return nil, err
 	}
 
 	return &Client{

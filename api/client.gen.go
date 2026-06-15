@@ -896,8 +896,8 @@ type GardenerShootVolume struct {
 
 // GardenerShootWorker defines model for Gardener_Shoot_Worker.
 type GardenerShootWorker struct {
-	Annotations    *map[string]GardenerShootWorkerAnnotation `json:"annotations,omitempty"`
-	Labels         *map[string]GardenerShootWorkerLabel      `json:"labels,omitempty"`
+	Annotations    *[]GardenerShootWorkerAnnotation `json:"annotations,omitempty"`
+	Labels         *[]GardenerShootWorkerLabel      `json:"labels,omitempty"`
 	Machine        GardenerShootMachine                      `json:"machine"`
 	MaxSurge       int                                       `json:"max_surge"`
 	MaxUnavailable *int                                      `json:"max_unavailable,omitempty"`

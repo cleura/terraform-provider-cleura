@@ -31,10 +31,6 @@ func ShootResourceSchema(ctx context.Context) schema.Schema {
 				Optional: true,
 				Computed: true,
 			},
-			"gardener_region_tag": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-			},
 			"hibernation_schedules": schema.ListNestedAttribute{
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
@@ -122,14 +118,6 @@ func ShootResourceSchema(ctx context.Context) schema.Schema {
 				Validators: []validator.String{
 					stringvalidator.RegexMatches(regexp.MustCompile("[A-Za-z0-9\\-]+"), ""),
 				},
-			},
-			"open_stack_project_id": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-			},
-			"open_stack_region_tag": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
 			},
 			"shoot_provider": schema.SingleNestedAttribute{
 				Attributes: map[string]schema.Attribute{
@@ -275,9 +263,9 @@ func ShootResourceSchema(ctx context.Context) schema.Schema {
 												Required: true,
 												Validators: []validator.String{
 													stringvalidator.OneOf(
-														"no_schedule",
-														"no_execute",
-														"prefer_no_schedule",
+														"NoSchedule",
+														"NoExecute",
+														"PreferNoSchedule",
 													),
 												},
 											},
@@ -333,13 +321,10 @@ func ShootResourceSchema(ctx context.Context) schema.Schema {
 type ShootModel struct {
 	AllowedCidrs         types.List         `tfsdk:"allowed_cidrs"`
 	EnableHaControlPlane types.Bool         `tfsdk:"enable_ha_control_plane"`
-	GardenerRegionTag    types.String       `tfsdk:"gardener_region_tag"`
 	HibernationSchedules types.List         `tfsdk:"hibernation_schedules"`
 	KubernetesVersion    types.String       `tfsdk:"kubernetes_version"`
 	Maintenance          MaintenanceValue   `tfsdk:"maintenance"`
 	Name                 types.String       `tfsdk:"name"`
-	OpenStackProjectId   types.String       `tfsdk:"open_stack_project_id"`
-	OpenStackRegionTag   types.String       `tfsdk:"open_stack_region_tag"`
 	ShootProvider        ShootProviderValue `tfsdk:"shoot_provider"`
 }
 
