@@ -1,16 +1,6 @@
-terraform {
-  required_providers {
-    cleura = {
-      source = "cleura/cleura"
-    }
-  }
-}
-
-provider "cleura" {
-  cloud      = var.cloud
-  region     = var.region
-  project_id = var.project_id
-}
+# STEP 1:
+# Creates a shoot cluster with a minimal configuration, managing one worker group
+# Tests the capability to determine "known after apply"
 
 resource "cleura_gardener_shoot" "test" {
   name               = var.name
@@ -34,18 +24,6 @@ resource "cleura_gardener_shoot" "test" {
       },
     ]
   }
-}
-
-variable "cloud" {
-  type = string
-}
-
-variable "project_id" {
-  type = string
-}
-
-variable "region" {
-  type = string
 }
 
 variable "image_version" {

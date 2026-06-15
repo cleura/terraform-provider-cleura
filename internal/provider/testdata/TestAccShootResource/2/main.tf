@@ -1,16 +1,5 @@
-terraform {
-  required_providers {
-    cleura = {
-      source = "cleura/cleura"
-    }
-  }
-}
-
-provider "cleura" {
-  cloud      = var.cloud
-  region     = var.region
-  project_id = var.project_id
-}
+# STEP 2:
+# Update the shoot cluster by filling in a value for all possible fields, and adds another worker group
 
 resource "cleura_gardener_shoot" "test" {
   name               = var.name
@@ -75,18 +64,6 @@ resource "cleura_gardener_shoot" "test" {
       },
     ]
   }
-}
-
-variable "cloud" {
-  type = string
-}
-
-variable "project_id" {
-  type = string
-}
-
-variable "region" {
-  type = string
 }
 
 variable "image_version" {

@@ -254,6 +254,13 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 		}
 	}
 
+	// Handle CloudProfileName: Computed-only — copy from state to avoid perpetual drift.
+	if plan.CloudProfileName.IsUnknown() || plan.CloudProfileName.IsNull() {
+		if !req.State.Raw.IsNull() && !state.CloudProfileName.IsUnknown() {
+			plan.CloudProfileName = state.CloudProfileName
+		}
+	}
+
 	// Handle EnableHaControlPlane: Optional+Computed without schema default
 	if plan.EnableHaControlPlane.IsUnknown() || plan.EnableHaControlPlane.IsNull() {
 		if req.State.Raw.IsNull() {
@@ -969,6 +976,9 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 
 	// EnableHaControlPlane (ControlPlane with HighAvailability indicates HA is enabled)
 	data.EnableHaControlPlane = basetypes.NewBoolValue(shootCluster.ControlPlane != nil)
+
+	// CloudProfileName
+	data.CloudProfileName = basetypes.NewStringValue(shootCluster.CloudProfileName)
 
 	// KubernetesVersion
 	data.KubernetesVersion = basetypes.NewStringValue(shootCluster.Kubernetes.Version)

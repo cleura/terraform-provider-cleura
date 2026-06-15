@@ -62,14 +62,14 @@ func (p *cleuraProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 		Attributes: map[string]schema.Attribute{
 			"cloud": schema.StringAttribute{
 				Description: "Cleura cloud: `public`, `compliant`, or the name of a private cloud (e.g. `acme-corp`). Used as the Gardener region tag. Only public and compliant have a default API URL; private clouds require url. May also be provided via CLEURA_CLOUD.",
-				Required:    true,
+				Optional:    true,
 				Validators: []validator.String{
 					stringvalidator.RegexMatches(regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9\-]*$`), "must be public, compliant, or a private cloud name"),
 				},
 			},
 			"region": schema.StringAttribute{
 				Description: "OpenStack region tag for this provider configuration (e.g. sto2, sto-com). May also be provided via CLEURA_REGION.",
-				Required:    true,
+				Optional:    true,
 			},
 			"project_id": schema.StringAttribute{
 				Description: "OpenStack project ID for Gardener resources. Optional when only using data sources; required for cleura_gardener_shoot and cleura_gardener_shoot_kubeconfig. May also be provided via CLEURA_PROJECT_ID.",

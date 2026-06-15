@@ -17,9 +17,6 @@ func TestAccShootResource(t *testing.T) {
 		t.Skip("Acceptance tests require TF_ACC=1")
 	}
 	tfVars := make(map[string]config.Variable)
-	tfVars["project_id"] = config.StringVariable(os.Getenv("CLEURA_TEST_OPENSTACK_PROJECT_ID"))
-	tfVars["region"] = config.StringVariable(os.Getenv("CLEURA_TEST_OPENSTACK_REGION_TAG"))
-	tfVars["cloud"] = config.StringVariable(os.Getenv("CLEURA_TEST_CLOUD"))
 	tfVars["kubernetes_version"] = config.StringVariable(os.Getenv("CLEURA_TEST_KUBERNETES_VERSION"))
 	tfVars["image_version"] = config.StringVariable(os.Getenv("CLEURA_TEST_IMAGE_VERSION"))
 
