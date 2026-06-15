@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"os"
+	"regexp"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/function"
@@ -10,7 +11,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
 	cleura "github.com/cleura/terraform-provider-cleura/client"
@@ -33,16 +36,16 @@ func New(version string) func() provider.Provider {
 
 // cleuraProviderModel maps provider schema data to a Go type.
 type cleuraProviderModel struct {
-	Url      types.String `tfsdk:"url"`
-	Username types.String `tfsdk:"username"`
-	Token    types.String `tfsdk:"token"`
+	Cloud     types.String `tfsdk:"cloud"`
+	Region    types.String `tfsdk:"region"`
+	ProjectID types.String `tfsdk:"project_id"`
+	Url       types.String `tfsdk:"url"`
+	Username  types.String `tfsdk:"username"`
+	Token     types.String `tfsdk:"token"`
 }
 
 // cleuraProvider is the provider implementation.
 type cleuraProvider struct {
-	// version is set to the provider version on release, "dev" when the
-	// provider is built and ran locally, and "test" when running acceptance
-	// testing.
 	version string
 }
 
@@ -57,8 +60,23 @@ func (p *cleuraProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 	resp.Schema = schema.Schema{
 		Description: "Interact with Cleura Cloud.",
 		Attributes: map[string]schema.Attribute{
+			"cloud": schema.StringAttribute{
+				Description: "Cleura cloud: `public`, `compliant`, or the name of a private cloud (e.g. `acme-corp`). Used as the Gardener region tag. Only public and compliant have a default API URL; private clouds require url. May also be provided via CLEURA_CLOUD.",
+				Optional:    true,
+				Validators: []validator.String{
+					stringvalidator.RegexMatches(regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9\-]*$`), "must be public, compliant, or a private cloud name"),
+				},
+			},
+			"region": schema.StringAttribute{
+				Description: "OpenStack region tag for this provider configuration (e.g. sto2, sto-com). May also be provided via CLEURA_REGION.",
+				Optional:    true,
+			},
+			"project_id": schema.StringAttribute{
+				Description: "OpenStack project ID for Gardener resources. Optional when only using data sources; required for cleura_gardener_shoot and cleura_gardener_shoot_kubeconfig. May also be provided via CLEURA_PROJECT_ID.",
+				Optional:    true,
+			},
 			"url": schema.StringAttribute{
-				Description: "URI for Cleura Cloud API. May also be provided via CLEURA_API_URL environment variable.",
+				Description: "URI for the Cleura Cloud API. Required for private clouds. When omitted, defaults for public and compliant cloud only. May also be provided via CLEURA_API_URL.",
 				Optional:    true,
 			},
 			"username": schema.StringAttribute{
@@ -77,7 +95,6 @@ func (p *cleuraProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	tflog.Info(ctx, "Configuring Cleura client")
 
-	// Retrieve provider data from configuration
 	var config cleuraProviderModel
 	diags := req.Config.Get(ctx, &config)
 	resp.Diagnostics.Append(diags...)
@@ -85,104 +102,73 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		return
 	}
 
-	// If practitioner provided a configuration value for any of the
-	// attributes, it must be a known value.
-
-	if config.Url.IsUnknown() {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("url"),
-			"Unknown Cleura API URL",
-			"The provider cannot create the Cleura API client as there is an unknown configuration value for the Cleura API URL. "+
-				"Either target apply the source of the value first, set the value statically in the configuration, or use the CLEURA_API_URL environment variable.",
-		)
-	}
-
-	if config.Username.IsUnknown() {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("username"),
-			"Unknown Cleura API Username",
-			"The provider cannot create the Cleura API client as there is an unknown configuration value for the Cleura API username. "+
-				"Either target apply the source of the value first, set the value statically in the configuration, or use the CLEURA_API_USERNAME environment variable.",
-		)
-	}
-
-	if config.Token.IsUnknown() {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("token"),
-			"Unknown Cleura API token",
-			"The provider cannot create the Cleura API client as there is an unknown configuration value for the Cleura API token. "+
-				"Either target apply the source of the value first, set the value statically in the configuration, or use the CLEURA_API_TOKEN environment variable.",
-		)
+	for _, check := range []struct {
+		name string
+		val  types.String
+		env  string
+	}{
+		{"cloud", config.Cloud, "CLEURA_CLOUD"},
+		{"region", config.Region, "CLEURA_REGION"},
+		{"project_id", config.ProjectID, "CLEURA_PROJECT_ID"},
+		{"url", config.Url, "CLEURA_API_URL"},
+		{"username", config.Username, "CLEURA_API_USERNAME"},
+		{"token", config.Token, "CLEURA_API_TOKEN"},
+	} {
+		if check.val.IsUnknown() {
+			resp.Diagnostics.AddAttributeError(
+				path.Root(check.name),
+				fmtUnknownTitle(check.name),
+				fmtUnknownDetail(check.name, check.env),
+			)
+		}
 	}
 
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Default values to environment variables, but override
-	// with Terraform configuration value if set.
+	cloud := stringOrEnv(config.Cloud, "CLEURA_CLOUD")
+	region := stringOrEnv(config.Region, "CLEURA_REGION")
+	projectID := stringOrEnv(config.ProjectID, "CLEURA_PROJECT_ID")
+	url := stringOrEnv(config.Url, "CLEURA_API_URL")
+	username := stringOrEnv(config.Username, "CLEURA_API_USERNAME")
+	token := stringOrEnv(config.Token, "CLEURA_API_TOKEN")
 
-	url := os.Getenv("CLEURA_API_URL")
-	username := os.Getenv("CLEURA_API_USERNAME")
-	token := os.Getenv("CLEURA_API_TOKEN")
-
-	if !config.Url.IsNull() {
-		url = config.Url.ValueString()
+	if cloud == "" {
+		resp.Diagnostics.AddAttributeError(path.Root("cloud"), "Missing Cleura cloud", "Set cloud in the provider configuration or use the CLEURA_CLOUD environment variable.")
 	}
-
-	if !config.Username.IsNull() {
-		username = config.Username.ValueString()
+	if region == "" {
+		resp.Diagnostics.AddAttributeError(path.Root("region"), "Missing Cleura region", "Set region in the provider configuration or use the CLEURA_REGION environment variable.")
 	}
-
-	if !config.Token.IsNull() {
-		token = config.Token.ValueString()
+	if username == "" {
+		resp.Diagnostics.AddAttributeError(path.Root("username"), "Missing Cleura API username", "Set username in the provider configuration or use the CLEURA_API_USERNAME environment variable.")
 	}
-
-	// If any of the expected configurations are missing, return
-	// errors with provider-specific guidance.
+	if token == "" {
+		resp.Diagnostics.AddAttributeError(path.Root("token"), "Missing Cleura API token", "Set token in the provider configuration or use the CLEURA_API_TOKEN environment variable.")
+	}
 
 	if url == "" {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("url"),
-			"Missing Cleura API url",
-			"The provider cannot create the Cleura API client as there is a missing or empty value for the Cleura API url. "+
-				"Set the url value in the configuration or use the CLEURA_API_URL environment variable. "+
-				"If either is already set, ensure the value is not empty.",
-		)
-	}
-
-	if username == "" {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("username"),
-			"Missing Cleura API Username",
-			"The provider cannot create the Cleura API client as there is a missing or empty value for the Cleura API username. "+
-				"Set the username value in the configuration or use the CLEURA_API_USERNAME environment variable. "+
-				"If either is already set, ensure the value is not empty.",
-		)
-	}
-
-	if token == "" {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("token"),
-			"Missing Cleura API token",
-			"The provider cannot create the Cleura API client as there is a missing or empty value for the Cleura API token. "+
-				"Set the token value in the configuration or use the CLEURA_API_TOKEN environment variable. "+
-				"If either is already set, ensure the value is not empty.",
-		)
+		defaultURL, err := cleura.DefaultAPIURL(cloud)
+		if err != nil {
+			resp.Diagnostics.AddAttributeError(path.Root("url"), "Missing Cleura API url", err.Error()+" Set url in the provider configuration or use the CLEURA_API_URL environment variable.")
+		} else {
+			url = defaultURL
+		}
 	}
 
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
+	ctx = tflog.SetField(ctx, "cleura_cloud", cloud)
+	ctx = tflog.SetField(ctx, "cleura_region", region)
+	ctx = tflog.SetField(ctx, "cleura_project_id", projectID)
 	ctx = tflog.SetField(ctx, "cleura_url", url)
 	ctx = tflog.SetField(ctx, "cleura_username", username)
-	ctx = tflog.SetField(ctx, "cleura_token", token)
 	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "cleura_token")
 
 	tflog.Debug(ctx, "Creating Cleura client")
 
-	// Create a new Cleura client using the configuration values
 	client, err := cleura.NewClientWithCredentials(url, username, token)
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -194,12 +180,33 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		return
 	}
 
-	// Make the Cleura client available during DataSource and Resource
-	// type Configure methods.
-	resp.DataSourceData = client
-	resp.ResourceData = client
+	providerConfig := &cleura.ProviderConfig{
+		Client:    client,
+		Cloud:     cloud,
+		Region:    region,
+		ProjectID: projectID,
+	}
+
+	resp.DataSourceData = providerConfig
+	resp.ResourceData = providerConfig
 
 	tflog.Info(ctx, "Configured Cleura client", map[string]any{"success": true})
+}
+
+func stringOrEnv(config types.String, envKey string) string {
+	if !config.IsNull() {
+		return config.ValueString()
+	}
+	return os.Getenv(envKey)
+}
+
+func fmtUnknownTitle(attr string) string {
+	return "Unknown Cleura provider attribute: " + attr
+}
+
+func fmtUnknownDetail(attr, envKey string) string {
+	return "The provider cannot be configured while " + attr + " is unknown. " +
+		"Set a static value in the provider configuration or use the " + envKey + " environment variable."
 }
 
 // DataSources defines the data sources implemented in the provider.
@@ -212,8 +219,8 @@ func (p *cleuraProvider) DataSources(_ context.Context) []func() datasource.Data
 // Resources defines the resources implemented in the provider.
 func (p *cleuraProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		NewShootResource,
-		NewShootKubeconfigResource,
+		NewGardenerShootResource,
+		NewGardenerShootKubeconfigResource,
 	}
 }
 

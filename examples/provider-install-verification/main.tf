@@ -7,40 +7,113 @@ terraform {
 }
 
 provider "cleura" {
-  url = "https://rest.cleura.cloud"
+  cloud      = "public"
+  region     = "Sto2"
+  project_id = "8a22c50af68e45c6b4dd7722cce8f93a"
 }
 
-resource "cleura_shoot" "example" {
-  name               = "kekwait"
-  kubernetes_version = "1.33.9"
-  # allowed_cidrs = [
-  #   "192.168.0.0/16",
-  #   "10.20.30.0/24"
-  # ]
+# Reference example: every optional cleura_gardener_shoot attribute illustrated.
+# Values below match public cloud / Sto2 cloud profile (see GET .../cloud-profiles).
+resource "cleura_gardener_shoot" "example" {
+  name               = "kekwait2"
+  kubernetes_version = "1.35.5"
 
-  # openstack id and gardener region tag must be required
-  open_stack_region_tag = "Kna1"
-  open_stack_project_id = "f0546dd8e1c94376bde39086ff57fbd3"
-  gardener_region_tag   = "public"
+  allowed_cidrs = [
+    "192.168.0.0/16",
+    "10.20.30.0/24",
+  ]
+
+  enable_ha_control_plane = true
+
+  hibernation_schedules = [
+    {
+      # Cron: weekdays 20:00–08:00 UTC (hibernate overnight)
+      start = "0 20 * * 1-5"
+      end   = "0 8 * * 1-5"
+    },
+  ]
+
+  maintenance = {
+    auto_update = {
+      kubernetes_version    = true
+      machine_image_version = true
+    }
+    time_window = {
+      begin = "020000+0000"
+      end   = "060000+0000"
+    }
+  }
+
   shoot_provider = {
     infrastructure_config = {
       floating_pool_name = "ext-net"
+      # Optional: use when attaching to an existing network (omit to let Cleura create one).
+      # network_id           = "00000000-0000-0000-0000-000000000001"
+      # router_id            = "00000000-0000-0000-0000-000000000002"
+      # workers_network_cidr = "10.250.0.0/16"
     }
-    load_balancer_provider = "amphora" # Default to amphora?
+    load_balancer_provider = "amphora"
+
     workers = [
       {
-        name = "ccc"
+        name = "wg-primary"
         machine = {
           image_name    = "gardenlinux"
-          image_version = "1877.13.0"
+          image_version = "1877.17.0"
           type          = "b.2c4gb"
         }
-        minimum     = 1
+        minimum     = 2
+        maximum     = 4
+        max_surge   = 1
         volume_size = "50Gi"
-        # labels = [
-        #   { key = "aaaa", value = "bbbb" }
-        # ]
+        zones       = ["nova"]
+
+        labels = [
+          { key = "workload", value = "api" },
+          { key = "env", value = "dev" },
+        ]
+
+        annotations = [
+          { key = "owner", value = "platform-team" },
+          { key = "cost-center", value = "engineering" },
+        ]
+
+        taints = [
+          { key = "dedicated", value = "api", effect = "NoSchedule" },
+          { key = "maintenance", value = "true", effect = "PreferNoSchedule" },
+          { key = "drain", value = "batch", effect = "NoExecute" },
+        ]
+      },
+      {
+        name = "wg-batch"
+        machine = {
+          image_name    = "gardenlinux"
+          image_version = "1877.17.0"
+          type          = "b.4c8gb"
+        }
+        minimum     = 1
+        maximum     = 3
+        max_surge   = 1
+        volume_size = "100Gi"
+        zones       = ["nova"]
+
+        labels = [
+          { key = "workload", value = "batch" },
+        ]
+
+        annotations = [
+          { key = "owner", value = "data-team" },
+        ]
+
+        taints = [
+          { key = "workload", value = "batch", effect = "NoSchedule" },
+        ]
       },
     ]
   }
+}
+
+resource "cleura_gardener_shoot_kubeconfig" "example" {
+  expiration_seconds = 3600
+  shoot_name         = cleura_gardener_shoot.example.name
 }

@@ -2,7 +2,7 @@ provider:
   name: cleura
 
 resources:
-  shoot:
+  gardener_shoot:
     create:
       path: /gardener/v2/{gardenerRegionTag}/shoots/{openStackRegionTag}/{openStackProjectId}
       method: POST
@@ -18,9 +18,9 @@ resources:
     schema:
       ignores:
         - "shootName"
-        #- "gardenerRegionTag"
-        #- "openStackProjectId"
-        #- "openStackRegionTag"
+        - "gardenerRegionTag"
+        - "openStackProjectId"
+        - "openStackRegionTag"
         - credentials_binding_name
         - "hibernation"
         - "kubernetes"

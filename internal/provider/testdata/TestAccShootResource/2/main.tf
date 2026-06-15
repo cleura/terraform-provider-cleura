@@ -1,7 +1,7 @@
 # STEP 2:
 # Update the shoot cluster by filling in a value for all possible fields, and adds another worker group
 
-resource "cleura_shoot" "test" {
+resource "cleura_gardener_shoot" "test" {
   name               = var.name
   kubernetes_version = var.kubernetes_version
   allowed_cidrs = [
@@ -21,10 +21,6 @@ resource "cleura_shoot" "test" {
     }
   }
 
-  # openstack id and gardener region tag must be required
-  open_stack_region_tag = var.openstack_region_tag
-  open_stack_project_id = var.openstack_project_id
-  gardener_region_tag   = var.gardener_region_tag
   shoot_provider = {
     infrastructure_config = {
       floating_pool_name = var.floating_pool_name
@@ -53,7 +49,7 @@ resource "cleura_shoot" "test" {
           { key = "label1", value = "labelvalue1" },
         ]
         taints = [
-          { key = "taint1", value = "taintvalue1", effect = "no_execute" },
+          { key = "taint1", value = "taintvalue1", effect = "NoExecute" },
         ]
       },
       {
@@ -68,18 +64,6 @@ resource "cleura_shoot" "test" {
       },
     ]
   }
-}
-
-variable "openstack_project_id" {
-  type = string
-}
-
-variable "openstack_region_tag" {
-  type = string
-}
-
-variable "gardener_region_tag" {
-  type = string
 }
 
 variable "image_version" {

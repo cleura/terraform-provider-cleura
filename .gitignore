@@ -11,3 +11,4 @@ slask
 *.env
 
 terraform-provider-cleura
+.agent

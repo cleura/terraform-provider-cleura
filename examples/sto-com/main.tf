@@ -6,27 +6,29 @@ terraform {
   }
 }
 
+variable "project_id" {
+  type        = string
+  description = "OpenStack project ID. Look up with the cleura_project data source in a bootstrap step, or from the Cleura console."
+}
+
 provider "cleura" {
-  url = "https://rest.compliant.cleura.cloud"
+  cloud      = "compliant"
+  region     = "sto-com"
+  project_id = var.project_id
 }
 
+# Optional: verify project_id matches a project name in the provider region.
 data "cleura_project" "example" {
-  name                  = "some-project"
-  open_stack_region_tag = "sto-com"
+  name = "some-project"
 }
 
-resource "cleura_shoot" "example" {
+resource "cleura_gardener_shoot" "example" {
   name               = "multi-az"
   kubernetes_version = "1.34.3"
   allowed_cidrs = [
     "192.168.0.0/16",
     "10.20.30.0/24"
   ]
-
-  // When using compliant cloud, gardener region tag is "compliant"
-  gardener_region_tag   = "compliant"
-  open_stack_project_id = data.cleura_project.example.id
-  open_stack_region_tag = data.cleura_project.example.open_stack_region_tag
 
   shoot_provider = {
     infrastructure_config = {
@@ -54,16 +56,17 @@ resource "cleura_shoot" "example" {
   }
 }
 
-resource "cleura_shoot_kubeconfig" "example" {
-  expiration_seconds = 3600 # One hour
-
-  shoot_name            = cleura_shoot.example.name
-  gardener_region_tag   = cleura_shoot.example.gardener_region_tag
-  open_stack_region_tag = cleura_shoot.example.open_stack_region_tag
-  open_stack_project_id = cleura_shoot.example.open_stack_project_id
+resource "cleura_gardener_shoot_kubeconfig" "example" {
+  expiration_seconds = 3600
+  shoot_name         = cleura_gardener_shoot.example.name
 }
 
 output "admin_kubeconfig" {
-  value     = cleura_shoot_kubeconfig.example.kubeconfig
+  value     = cleura_gardener_shoot_kubeconfig.example.kubeconfig
   sensitive = true
+}
+
+output "resolved_project_id" {
+  value       = data.cleura_project.example.id
+  description = "Project ID from name lookup; should match var.project_id."
 }
