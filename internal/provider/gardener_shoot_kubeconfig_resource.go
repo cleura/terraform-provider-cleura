@@ -13,7 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	api "github.com/cleura/terraform-provider-cleura/api"
-	cleura "github.com/cleura/terraform-provider-cleura/client"
+	"github.com/cleura/terraform-provider-cleura/cleura"
 )
 
 var _ resource.Resource = (*shootKubeconfigResource)(nil)
@@ -29,7 +29,7 @@ type shootKubeconfigResource struct {
 }
 
 func (r *shootKubeconfigResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	r.config = providerConfigFromResource(ctx, req, resp)
+	r.config = fromResource(ctx, req, resp)
 }
 
 type shootKubeconfigResourceModel struct {
@@ -99,7 +99,7 @@ func (r *shootKubeconfigResource) ModifyPlan(ctx context.Context, req resource.M
 }
 
 func (r *shootKubeconfigResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	if !requireProviderConfig(r.config, &resp.Diagnostics, true) {
+	if !require(r.config, &resp.Diagnostics, true) {
 		return
 	}
 

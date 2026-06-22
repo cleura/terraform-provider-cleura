@@ -7,7 +7,7 @@ import (
 	"io"
 
 	"github.com/cleura/terraform-provider-cleura/api"
-	cleura "github.com/cleura/terraform-provider-cleura/client"
+	"github.com/cleura/terraform-provider-cleura/cleura"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -29,7 +29,7 @@ type projectDataSourceModel struct {
 }
 
 func (d *projectDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	d.config = providerConfigFromDataSource(ctx, req, resp)
+	d.config = fromDataSource(ctx, req, resp)
 }
 
 func (d *projectDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -52,7 +52,7 @@ func (d *projectDataSource) Schema(ctx context.Context, req datasource.SchemaReq
 }
 
 func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	if !requireProviderConfig(d.config, &resp.Diagnostics, false) {
+	if !require(d.config, &resp.Diagnostics, false) {
 		return
 	}
 

@@ -5,7 +5,7 @@
 
 A Terraform/OpenTofu provider for managing resources on Cleura Cloud regions. It supports both Public and Compliant cloud.
 
-The provider datamodels and scaffolding is being generated from our OpenAPI spec using the [Terraform Provider Code Generation](https://github.com/hashicorp/terraform-plugin-codegen-openapi) tool, and the client is generated using [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen). Since oapi-codegen currently does not support OAS 3.1, it needs to be downgraded to OAS 3.0, which is done using a pythin plugin called 
+The provider datamodels and scaffolding is being generated from our OpenAPI spec using the [Terraform Provider Code Generation](https://github.com/hashicorp/terraform-plugin-codegen-openapi) tool, and the client is generated using [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen). Since oapi-codegen currently does not support OAS 3.1, it needs to be downgraded to OAS 3.0, which is done using a pythin plugin called
 
 ## Usage
 

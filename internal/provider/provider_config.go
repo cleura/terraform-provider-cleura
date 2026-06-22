@@ -4,22 +4,22 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 
-	cleura "github.com/cleura/terraform-provider-cleura/client"
+	"github.com/cleura/terraform-provider-cleura/cleura"
 )
 
-func providerConfigFromResource(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) *cleura.ProviderConfig {
-	return providerConfig(ctx, req.ProviderData, &resp.Diagnostics, true)
+func fromResource(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) *cleura.ProviderConfig {
+	return fromProviderData(ctx, req.ProviderData, &resp.Diagnostics)
 }
 
-func providerConfigFromDataSource(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) *cleura.ProviderConfig {
-	return providerConfig(ctx, req.ProviderData, &resp.Diagnostics, false)
+func fromDataSource(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) *cleura.ProviderConfig {
+	return fromProviderData(ctx, req.ProviderData, &resp.Diagnostics)
 }
 
-func providerConfig(_ context.Context, providerData any, diags *diag.Diagnostics, requireProjectID bool) *cleura.ProviderConfig {
+func fromProviderData(_ context.Context, providerData any, diags *diag.Diagnostics) *cleura.ProviderConfig {
 	// ProviderData is nil during early framework validation passes; that is expected.
 	if providerData == nil {
 		return nil
@@ -37,7 +37,7 @@ func providerConfig(_ context.Context, providerData any, diags *diag.Diagnostics
 	return cfg
 }
 
-func requireProviderConfig(cfg *cleura.ProviderConfig, diags *diag.Diagnostics, requireProjectID bool) bool {
+func require(cfg *cleura.ProviderConfig, diags *diag.Diagnostics, requireProjectID bool) bool {
 	if cfg == nil || cfg.Client == nil {
 		diags.AddError(
 			"Unconfigured Cleura Provider",
