@@ -162,7 +162,9 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 		if diag.HasError() {
 			return
 		}
-	} else {
+	} else if data.HibernationSchedules.IsNull() || data.HibernationSchedules.IsUnknown() {
+		// Only set to null if it wasn't already set by the plan/config.
+		// This prevents dropping the user's config if the API omits the field.
 		data.HibernationSchedules = basetypes.NewListNull(resource_gardener_shoot.HibernationSchedulesValue{}.Type(ctx))
 	}
 
@@ -380,10 +382,18 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 
 // preserveOrder reorders vals so their keys follow the order in dataList (the
 // user's configured / prior-state list), keeping any entries not present in
-// dataList at the end in their original order. Label/annotation/taint lists are
-// maps semantically, but the API returns them in a normalized order; without
-// this, a config order that differs from the API's triggers "Provider produced
-// inconsistent result after apply".
+// dataList at the end in their original order.
+//
+// WORKAROUND. In Kubernetes, labels and annotations are maps and taints are a set
+// keyed by (key, effect); the Cleura API instead models them as ordered arrays of
+// {key, value} and returns them in a normalized order. Terraform maps that array
+// to an ordered list, so when the API's order differs from the user's config the
+// plugin framework raises "Provider produced inconsistent result after apply".
+// This helper re-sorts API responses back into the user's order to avoid that.
+//
+// The goal is to fix this upstream: if the API modeled labels/annotations as maps
+// (and taints as a set), the generated schema would be order-independent and this
+// helper — together with all its call sites — could be removed.
 func preserveOrder[T any](ctx context.Context, vals []T, dataList basetypes.ListValue, keyOf func(T) string) []T {
 	if len(vals) <= 1 || dataList.IsNull() || dataList.IsUnknown() {
 		return vals

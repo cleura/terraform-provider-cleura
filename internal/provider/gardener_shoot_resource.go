@@ -207,6 +207,12 @@ func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
+	// Refresh state from API so it reflects the applied changes (e.g. hibernation, computed fields)
+	SetShootStateValues(ctx, r.config, nil, &data, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
