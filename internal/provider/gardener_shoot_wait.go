@@ -21,9 +21,9 @@ const (
 // isRetriableStatus returns true for HTTP statuses that may be transient (e.g. 403 Forbidden IP after wake from sleep).
 func isRetriableStatus(statusCode int) bool {
 	switch statusCode {
-	case 403: // Forbidden IP - can occur during network transition when screen locks/unlocks
-	case 429: // Too Many Requests
-	case 502, 503, 504: // Bad Gateway, Service Unavailable, Gateway Timeout
+	// 403 = Forbidden IP (can occur during a network transition, e.g. wake from
+	// sleep); 429 = Too Many Requests; 502/503/504 = transient gateway errors.
+	case 403, 429, 502, 503, 504:
 		return true
 	}
 	return false

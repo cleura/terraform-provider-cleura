@@ -11,6 +11,7 @@ import (
 	"github.com/cleura/terraform-provider-cleura/api"
 	"github.com/cleura/terraform-provider-cleura/cleura"
 	"github.com/cleura/terraform-provider-cleura/internal/provider/resource_gardener_shoot"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -192,6 +193,15 @@ func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
+	// The cluster now exists remotely. Persist state before waiting for
+	// reconciliation so that a reconcile failure or timeout leaves a tracked
+	// (tainted) resource that `terraform destroy`/re-apply can clean up,
+	// instead of an orphaned cluster missing from state.
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -284,9 +294,18 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		hibernationSchedulesPtr = &hibernationSchedules
 	}
 
+	// Only send enable_ha_control_plane when it actually changes. The Cleura API
+	// returns 409 if asked to enable HA on a shoot where it is already enabled, and
+	// disabling HA is handled as a replacement in ModifyPlan — so re-sending the
+	// unchanged value on an in-place update would always fail once HA is on.
+	var enableHaControlPlane *bool
+	if !data.EnableHaControlPlane.Equal(state.EnableHaControlPlane) {
+		enableHaControlPlane = data.EnableHaControlPlane.ValueBoolPointer()
+	}
+
 	reqBody := api.GardenerEditShootJSONRequestBody{
 		AllowedCidrs:         &allowedCidrs,
-		EnableHaControlPlane: data.EnableHaControlPlane.ValueBoolPointer(),
+		EnableHaControlPlane: enableHaControlPlane,
 		HibernationSchedules: hibernationSchedulesPtr,
 		Kubernetes:           data.KubernetesVersion.ValueStringPointer(),
 		Maintenance: &api.GardenerEditShootMaintenance{
@@ -319,14 +338,32 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		return
 	}
 
+	// The shoot edit above and the worker operations below all mutate the cluster
+	// remotely. Refresh from the API and persist state on every exit path (success
+	// or failure) so a mid-sequence error doesn't leave Terraform state out of sync
+	// with the changes already applied.
+	defer func() {
+		var refreshDiags diag.Diagnostics
+		SetShootStateValues(ctx, r.config, nil, &data, &refreshDiags)
+		if refreshDiags.HasError() {
+			// Couldn't read the cluster back; leave existing state untouched rather
+			// than overwrite it with unverified values.
+			resp.Diagnostics.Append(refreshDiags...)
+			return
+		}
+		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	}()
+
 	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Update worker groups after the shoot cluster updates has been reconciled.
-	// Match by position/order (plan[i] ↔ state[i])—ordering is critical for state consistency.
-	// Update overlapping pairs, delete excess state, create excess plan.
+	// Reconcile worker groups after the shoot-level update. A worker group is
+	// identified by its (immutable) name, so match plan↔state by name: update
+	// changed groups, delete groups removed from config, create new ones. Matching
+	// by name (not list position) keeps the right group targeted when groups are
+	// reordered or one is removed from the middle.
 
 	var workersListPlan []resource_gardener_shoot.WorkersValue
 	resp.Diagnostics.Append(data.ShootProvider.Workers.ElementsAs(ctx, &workersListPlan, false)...)
@@ -342,16 +379,17 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		}
 	}
 
-	nOverlap := len(workersListPlan)
-	if len(workersListState) < nOverlap {
-		nOverlap = len(workersListState)
+	stateWorkersByName := WorkersListToMap(workersListState)
+	planWorkerNames := make(map[string]struct{}, len(workersListPlan))
+	for _, w := range workersListPlan {
+		planWorkerNames[w.Name.ValueString()] = struct{}{}
 	}
 
-	// 1. Update workers matched by position (plan[i] ↔ state[i])
-	for i := 0; i < nOverlap; i++ {
-		planWorker := workersListPlan[i]
-		stateWorker := workersListState[i]
-		if planWorker.Equal(stateWorker) {
+	// 1. Update worker groups present in both plan and state that have changed.
+	for _, planWorker := range workersListPlan {
+		name := planWorker.Name.ValueString()
+		stateWorker, exists := stateWorkersByName[name]
+		if !exists || planWorker.Equal(stateWorker) {
 			continue
 		}
 		updateBody, ok := workerToEditWorker(ctx, planWorker, &resp.Diagnostics)
@@ -363,16 +401,15 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 			resp.Diagnostics.AddError("Failed to build worker update request", err.Error())
 			return
 		}
-		existingName := stateWorker.Name.ValueString()
-		updateResp, err := r.config.Client.GardenerUpdateWorkerWithBody(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), existingName, "application/json", bytes.NewReader(bodyBytes))
+		updateResp, err := r.config.Client.GardenerUpdateWorkerWithBody(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), name, "application/json", bytes.NewReader(bodyBytes))
 		if err != nil {
-			resp.Diagnostics.AddError("Failed to update worker group", fmt.Sprintf("worker %q: %s", existingName, err.Error()))
+			resp.Diagnostics.AddError("Failed to update worker group", fmt.Sprintf("worker %q: %s", name, err.Error()))
 			return
 		}
 		if updateResp.StatusCode < 200 || updateResp.StatusCode >= 300 {
 			body, _ := io.ReadAll(updateResp.Body)
 			updateResp.Body.Close()
-			resp.Diagnostics.AddError("Failed to update worker group", fmt.Sprintf("worker %q: HTTP %d: %s", existingName, updateResp.StatusCode, string(body)))
+			resp.Diagnostics.AddError("Failed to update worker group", fmt.Sprintf("worker %q: HTTP %d: %s", name, updateResp.StatusCode, string(body)))
 			return
 		}
 		updateResp.Body.Close()
@@ -382,9 +419,12 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		}
 	}
 
-	// 2. Delete excess state workers (indices nOverlap..len(workersListState)-1)
-	for si := nOverlap; si < len(workersListState); si++ {
-		name := workersListState[si].Name.ValueString()
+	// 2. Delete worker groups present in state but no longer in the plan.
+	for _, stateWorker := range workersListState {
+		name := stateWorker.Name.ValueString()
+		if _, kept := planWorkerNames[name]; kept {
+			continue
+		}
 		delResp, err := r.config.Client.GardenerDeleteWorker(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), name)
 		if err != nil {
 			resp.Diagnostics.AddError("Failed to delete worker group", fmt.Sprintf("worker %q: %s", name, err.Error()))
@@ -403,14 +443,16 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		}
 	}
 
-	// 3. Create excess plan workers (indices nOverlap..len(workersListPlan)-1)
-	for pi := nOverlap; pi < len(workersListPlan); pi++ {
-		worker := workersListPlan[pi]
-		createBody, ok := workerToCreateWorker(ctx, worker, &resp.Diagnostics)
+	// 3. Create worker groups present in the plan but not yet in state.
+	for _, planWorker := range workersListPlan {
+		name := planWorker.Name.ValueString()
+		if _, exists := stateWorkersByName[name]; exists {
+			continue
+		}
+		createBody, ok := workerToCreateWorker(ctx, planWorker, &resp.Diagnostics)
 		if !ok {
 			return
 		}
-		name := worker.Name.ValueString()
 		createResp, err := r.config.Client.GardenerCreateWorker(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), createBody)
 		if err != nil {
 			resp.Diagnostics.AddError("Failed to create worker group", fmt.Sprintf("worker %q: %s", name, err.Error()))
@@ -434,16 +476,8 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		return
 	}
 
-	// Refresh state from API so it reflects the applied changes (e.g. empty annotations/labels/taints)
-	SetShootStateValues(ctx, r.config, nil, &data, &resp.Diagnostics)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
+	// State is refreshed from the API and persisted by the deferred refresh above
+	// (covering both this success path and every early-return error path).
 }
 
 func (r *GardenerShootResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
