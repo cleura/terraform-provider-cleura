@@ -12,3 +12,5 @@ slask
 
 terraform-provider-cleura
 .agent
+
+.DS_Store
