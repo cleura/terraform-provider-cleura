@@ -6,10 +6,10 @@ OPENAPI_SPEC="$(mktemp)"
 OPENAPI_SPEC_30="$(mktemp)"
 
 curl -s https://rest.cleura.cloud/apidoc.json | sed -r '/^.*required": \[\].*$/d' > "${OPENAPI_SPEC}"
-~/venv/bin/openapi_downgrade "${OPENAPI_SPEC}" "${OPENAPI_SPEC_30}"
+~/dev/venv-3.12/bin/openapi_downgrade "${OPENAPI_SPEC}" "${OPENAPI_SPEC_30}"
 
 # Generate the API client
-oapi-codegen -config client-oapi-config.yaml -include-tags Gardener,OpenStack_Identity "${OPENAPI_SPEC_30}"
+oapi-codegen -config client-oapi-config.yaml -include-tags Gardener,OpenStack_Identity,Identity "${OPENAPI_SPEC_30}"
 
 # Generate a JSON provider spec for Terraform SDK
 tfplugingen-openapi generate \
