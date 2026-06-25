@@ -10,7 +10,7 @@ require (
 	github.com/hashicorp/terraform-plugin-log v0.10.0
 	github.com/hashicorp/terraform-plugin-testing v1.15.0
 	github.com/oapi-codegen/runtime v1.4.0
-	gopkg.in/yaml.v2 v2.4.0
+	go.yaml.in/yaml/v3 v3.0.4
 )
 
 require (
@@ -63,7 +63,6 @@ require (
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/woodsbury/decimal128 v1.4.0 // indirect
 	github.com/zclconf/go-cty v1.17.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/mod v0.34.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
