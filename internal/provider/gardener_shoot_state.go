@@ -47,9 +47,34 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 
 	// All values below are built from API response (data may be empty during import)
 
+	// Surface a failed/aborted reconcile so a refresh/plan reflects the cluster's
+	// real health instead of silently reporting "no changes". The API returns the
+	// submitted spec even when the underlying operation failed (e.g. nodes could
+	// not be provisioned), so lastOperation is the only signal of trouble. This is
+	// a warning, not an error, so the user can still plan a fix.
+	if op := shootCluster.LastOperation; op != nil {
+		switch op.State {
+		case api.GardenerShootLastOperationStateError,
+			api.GardenerShootLastOperationStateFailed,
+			api.GardenerShootLastOperationStateAborted:
+			diag.AddWarning(
+				"Cluster reconciliation has not succeeded",
+				fmt.Sprintf("Shoot %q: the last %s operation is %q (%d%% complete).\n\n"+
+					"The running cluster may not match its configuration until this is resolved. "+
+					"Once the cause (shown below) is addressed, trigger a fresh reconcile — either run "+
+					"one from the Cleura Cloud Control Panel, or apply a configuration change through Terraform.\n\n"+
+					"API message:\n%s",
+					data.Name.ValueString(), op.Type, op.State, op.Progress, op.Description),
+			)
+		}
+	}
+
 	// AllowedCidrs
 	if shootCluster.AllowedCidrs != nil && len(*shootCluster.AllowedCidrs) > 0 {
-		allowedCidrsVal, diags := basetypes.NewListValueFrom(ctx, basetypes.StringType{}, *shootCluster.AllowedCidrs)
+		// allowed_cidrs is a set; preserve the user's configured order in case the
+		// API returns it in a different order.
+		cidrs := preserveOrder(ctx, *shootCluster.AllowedCidrs, data.AllowedCidrs, func(c string) string { return c })
+		allowedCidrsVal, diags := basetypes.NewListValueFrom(ctx, basetypes.StringType{}, cidrs)
 		diag.Append(diags...)
 		if diag.HasError() {
 			return
@@ -102,17 +127,44 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 	if shootCluster.Hibernation != nil {
 		hibernationSchedules := []resource_gardener_shoot.HibernationSchedulesValue{}
 		for _, schedule := range shootCluster.Hibernation.Schedules {
-			hibernationSchedules = append(hibernationSchedules, resource_gardener_shoot.HibernationSchedulesValue{
-				Start: basetypes.NewStringValue(*schedule.Start),
-				End:   basetypes.NewStringValue(*schedule.End),
-			})
+			start := ""
+			if schedule.Start != nil {
+				start = *schedule.Start
+			}
+			end := ""
+			if schedule.End != nil {
+				end = *schedule.End
+			}
+			// Use the generated constructor so the element's state is Known. A bare
+			// struct literal leaves state at its zero value (Null), which serializes
+			// to a null object and drops start/end.
+			hv, d := resource_gardener_shoot.NewHibernationSchedulesValue(
+				resource_gardener_shoot.HibernationSchedulesValue{}.AttributeTypes(ctx),
+				map[string]attr.Value{
+					"start": basetypes.NewStringValue(start),
+					"end":   basetypes.NewStringValue(end),
+				},
+			)
+			diag.Append(d...)
+			if diag.HasError() {
+				return
+			}
+			hibernationSchedules = append(hibernationSchedules, hv)
 		}
+		// Preserve the user's configured schedule order, keyed by start+end, in case
+		// the API returns schedules in a different order. (\x00 separator avoids any
+		// collision since cron strings never contain a null byte.)
+		hibernationSchedules = preserveOrder(ctx, hibernationSchedules, data.HibernationSchedules, func(h resource_gardener_shoot.HibernationSchedulesValue) string {
+			return h.Start.ValueString() + "\x00" + h.End.ValueString()
+		})
 		data.HibernationSchedules, diags = basetypes.NewListValueFrom(ctx, resource_gardener_shoot.HibernationSchedulesValue{}.Type(ctx), hibernationSchedules)
 		diag.Append(diags...)
 		if diag.HasError() {
 			return
 		}
-	} else {
+	} else if data.HibernationSchedules.IsNull() || data.HibernationSchedules.IsUnknown() {
+		// Only set to null if it wasn't already set by the plan/config.
+		// This prevents dropping the user's config if the API omits the field.
 		data.HibernationSchedules = basetypes.NewListNull(resource_gardener_shoot.HibernationSchedulesValue{}.Type(ctx))
 	}
 
@@ -153,9 +205,26 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 	}
 	data.Maintenance = maintenanceVal
 
-	// Build workers from API response (data may be empty during import)
+	// Build workers from API response (data may be empty during import).
+	//
+	// The API returns each worker's label/annotation/taint maps in a normalized
+	// order that may differ from the user's configuration. Map the plan/prior
+	// state workers by name so state preserves the configured order and avoids
+	// "Provider produced inconsistent result after apply".
+	dataWorkersByName := map[string]resource_gardener_shoot.WorkersValue{}
+	if !data.ShootProvider.Workers.IsNull() && !data.ShootProvider.Workers.IsUnknown() {
+		var dws []resource_gardener_shoot.WorkersValue
+		if !data.ShootProvider.Workers.ElementsAs(ctx, &dws, false).HasError() {
+			for _, dw := range dws {
+				dataWorkersByName[dw.Name.ValueString()] = dw
+			}
+		}
+	}
+
 	var workersList []resource_gardener_shoot.WorkersValue
 	for _, worker := range shootCluster.ShootProvider.Workers {
+		dataWorker := dataWorkersByName[worker.Name]
+
 		annotations := []resource_gardener_shoot.AnnotationsValue{}
 		if worker.Annotations != nil {
 			for _, a := range *worker.Annotations {
@@ -173,6 +242,7 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 				annotations = append(annotations, av)
 			}
 		}
+		annotations = preserveOrder(ctx, annotations, dataWorker.Annotations, func(a resource_gardener_shoot.AnnotationsValue) string { return a.Key.ValueString() })
 		annotationsListValue, diags := basetypes.NewListValueFrom(ctx, resource_gardener_shoot.AnnotationsValue{}.Type(ctx), annotations)
 		diag.Append(diags...)
 		if diag.HasError() {
@@ -200,6 +270,7 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 				labels = append(labels, lv)
 			}
 		}
+		labels = preserveOrder(ctx, labels, dataWorker.Labels, func(l resource_gardener_shoot.LabelsValue) string { return l.Key.ValueString() })
 		labelsListValue, diags := basetypes.NewListValueFrom(ctx, resource_gardener_shoot.LabelsValue{}.Type(ctx), labels)
 		diag.Append(diags...)
 		if diag.HasError() {
@@ -224,13 +295,21 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 				taints = append(taints, tv)
 			}
 		}
+		// Taints are identified by (key, effect) — the same key with different
+		// effects is valid — so key the reorder by both, else preserveOrder's dedup
+		// would silently drop a distinct taint.
+		taints = preserveOrder(ctx, taints, dataWorker.Taints, func(t resource_gardener_shoot.TaintsValue) string {
+			return t.Key.ValueString() + "\x00" + t.Effect.ValueString()
+		})
 		taintsListValue, diags := basetypes.NewListValueFrom(ctx, resource_gardener_shoot.TaintsValue{}.Type(ctx), taints)
 		diag.Append(diags...)
 		if diag.HasError() {
 			return
 		}
 
-		zonesValue, diags := basetypes.NewListValueFrom(ctx, basetypes.StringType{}, worker.Zones)
+		// Preserve the user's configured zone order in case the API reorders them.
+		zones := preserveOrder(ctx, worker.Zones, dataWorker.Zones, func(z string) string { return z })
+		zonesValue, diags := basetypes.NewListValueFrom(ctx, basetypes.StringType{}, zones)
 		diag.Append(diags...)
 		if diag.HasError() {
 			return
@@ -277,6 +356,9 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 		workersList = append(workersList, workerVal)
 	}
 
+	// Preserve the user's configured worker order; the API may return workers in a
+	// different order, which would otherwise cause inconsistent-result errors.
+	workersList = preserveOrder(ctx, workersList, data.ShootProvider.Workers, func(w resource_gardener_shoot.WorkersValue) string { return w.Name.ValueString() })
 	workersListValue, diags := basetypes.NewListValueFrom(ctx, resource_gardener_shoot.WorkersValue{}.Type(ctx), workersList)
 	diag.Append(diags...)
 	if diag.HasError() {
@@ -296,4 +378,51 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 		return
 	}
 	data.ShootProvider = shootProviderVal
+}
+
+// preserveOrder reorders vals so their keys follow the order in dataList (the
+// user's configured / prior-state list), keeping any entries not present in
+// dataList at the end in their original order.
+//
+// WORKAROUND. In Kubernetes, labels and annotations are maps and taints are a set
+// keyed by (key, effect); the Cleura API instead models them as ordered arrays of
+// {key, value} and returns them in a normalized order. Terraform maps that array
+// to an ordered list, so when the API's order differs from the user's config the
+// plugin framework raises "Provider produced inconsistent result after apply".
+// This helper re-sorts API responses back into the user's order to avoid that.
+//
+// The goal is to fix this upstream: if the API modeled labels/annotations as maps
+// (and taints as a set), the generated schema would be order-independent and this
+// helper — together with all its call sites — could be removed.
+func preserveOrder[T any](ctx context.Context, vals []T, dataList basetypes.ListValue, keyOf func(T) string) []T {
+	if len(vals) <= 1 || dataList.IsNull() || dataList.IsUnknown() {
+		return vals
+	}
+	var dataVals []T
+	if dataList.ElementsAs(ctx, &dataVals, false).HasError() {
+		return vals
+	}
+	byKey := make(map[string]T, len(vals))
+	for _, v := range vals {
+		byKey[keyOf(v)] = v
+	}
+	out := make([]T, 0, len(vals))
+	seen := make(map[string]struct{}, len(vals))
+	for _, dv := range dataVals {
+		k := keyOf(dv)
+		if v, ok := byKey[k]; ok {
+			if _, dup := seen[k]; !dup {
+				out = append(out, v)
+				seen[k] = struct{}{}
+			}
+		}
+	}
+	for _, v := range vals {
+		k := keyOf(v)
+		if _, ok := seen[k]; !ok {
+			out = append(out, v)
+			seen[k] = struct{}{}
+		}
+	}
+	return out
 }
