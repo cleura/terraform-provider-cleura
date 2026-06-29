@@ -273,19 +273,49 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		}
 	}
 
-	maintenanceAutoUpdateValuable, diags := resource_gardener_shoot.AutoUpdateType{}.ValueFromObject(ctx, data.Maintenance.AutoUpdate)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
+	var maintenanceAutoUpdate resource_gardener_shoot.AutoUpdateValue
+	hasAutoUpdate := !data.Maintenance.AutoUpdate.IsNull() && !data.Maintenance.AutoUpdate.IsUnknown()
+	if hasAutoUpdate {
+		maintenanceAutoUpdateValuable, diags := resource_gardener_shoot.AutoUpdateType{}.ValueFromObject(ctx, data.Maintenance.AutoUpdate)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		maintenanceAutoUpdate = maintenanceAutoUpdateValuable.(resource_gardener_shoot.AutoUpdateValue)
 	}
-	maintenanceAutoUpdate := maintenanceAutoUpdateValuable.(resource_gardener_shoot.AutoUpdateValue)
 
-	maintenanceTimeWindowValuable, diags := resource_gardener_shoot.TimeWindowType{}.ValueFromObject(ctx, data.Maintenance.TimeWindow)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
+	var maintenanceTimeWindow resource_gardener_shoot.TimeWindowValue
+	hasTimeWindow := !data.Maintenance.TimeWindow.IsNull() && !data.Maintenance.TimeWindow.IsUnknown()
+	if hasTimeWindow {
+		maintenanceTimeWindowValuable, diags := resource_gardener_shoot.TimeWindowType{}.ValueFromObject(ctx, data.Maintenance.TimeWindow)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		maintenanceTimeWindow = maintenanceTimeWindowValuable.(resource_gardener_shoot.TimeWindowValue)
 	}
-	maintenanceTimeWindow := maintenanceTimeWindowValuable.(resource_gardener_shoot.TimeWindowValue)
+
+	// The edit maintenance fields are now optional pointers (matching create), so
+	// mirror Create: include only the sub-blocks the user set and omit absent ones,
+	// which the PATCH leaves untouched. Fixes the silent reset (#9) without a
+	// state read-back workaround.
+	var maintenancePtr *api.GardenerEditShootMaintenance
+	if hasAutoUpdate || hasTimeWindow {
+		m := &api.GardenerEditShootMaintenance{}
+		if hasAutoUpdate {
+			m.AutoUpdate = &api.GardenerEditShootAutoUpdate{
+				KubernetesVersion:   maintenanceAutoUpdate.KubernetesVersion.ValueBoolPointer(),
+				MachineImageVersion: maintenanceAutoUpdate.MachineImageVersion.ValueBoolPointer(),
+			}
+		}
+		if hasTimeWindow {
+			m.TimeWindow = &api.GardenerTimeWindow{
+				Begin: maintenanceTimeWindow.Begin.ValueString(),
+				End:   maintenanceTimeWindow.End.ValueString(),
+			}
+		}
+		maintenancePtr = m
+	}
 
 	var hibernationSchedules []api.GardenerEditShootHibernationSchedule
 	for _, hs := range hibernationSchedulesList {
@@ -314,16 +344,7 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		EnableHaControlPlane: enableHaControlPlane,
 		HibernationSchedules: hibernationSchedulesPtr,
 		Kubernetes:           data.KubernetesVersion.ValueStringPointer(),
-		Maintenance: &api.GardenerEditShootMaintenance{
-			AutoUpdate: api.GardenerEditShootAutoUpdate{
-				KubernetesVersion:   maintenanceAutoUpdate.KubernetesVersion.ValueBool(),
-				MachineImageVersion: maintenanceAutoUpdate.MachineImageVersion.ValueBool(),
-			},
-			TimeWindow: api.GardenerTimeWindow{
-				Begin: maintenanceTimeWindow.Begin.ValueString(),
-				End:   maintenanceTimeWindow.End.ValueString(),
-			},
-		},
+		Maintenance:          maintenancePtr,
 	}
 
 	response, err := r.config.Client.GardenerEditShoot(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), reqBody)
