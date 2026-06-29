@@ -5,11 +5,75 @@
 
 A Terraform/OpenTofu provider for managing resources on Cleura Cloud regions. It supports both Public and Compliant cloud.
 
-The provider datamodels and scaffolding is being generated from our OpenAPI spec using the [Terraform Provider Code Generation](https://github.com/hashicorp/terraform-plugin-codegen-openapi) tool, and the client is generated using [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen). Since oapi-codegen currently does not support OAS 3.1, it needs to be downgraded to OAS 3.0, which is done using a pythin plugin called
+The provider datamodels and scaffolding is being generated from our OpenAPI spec using the [Terraform Provider Code Generation](https://github.com/hashicorp/terraform-plugin-codegen-openapi) tool, and the client is generated using [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen). Since oapi-codegen currently does not support OAS 3.1, the spec is downgraded to OAS 3.0 using the [`openapi_downgrade`](https://pypi.org/project/openapi-downgrade/) Python tool (see [Generate](#generate)).
 
 ## Usage
 
-TBD
+Configure the provider and create a Gardener Kubernetes cluster ("shoot"):
+
+```hcl
+terraform {
+  required_providers {
+    cleura = {
+      source = "cleura/cleura"
+    }
+  }
+}
+
+provider "cleura" {
+  cloud      = "public" # "public", "compliant", or a private cloud name
+  region     = "Sto2"
+  project_id = "8a22c50af68e45c6b4dd7722cce8f93a"
+  # Credentials are read from CLEURA_API_USERNAME and CLEURA_API_TOKEN
+}
+
+resource "cleura_gardener_shoot" "example" {
+  name               = "example-cluster"
+  kubernetes_version = "1.35.6"
+
+  shoot_provider = {
+    load_balancer_provider = "amphora"
+
+    infrastructure_config = {
+      floating_pool_name = "ext-net"
+    }
+
+    workers = [
+      {
+        name = "default"
+        machine = {
+          image_name    = "gardenlinux"
+          image_version = "1877.19.0"
+          type          = "b.2c4gb"
+        }
+        minimum     = 2
+        maximum     = 4
+        max_surge   = 1
+        volume_size = "50Gi"
+        zones       = ["nova"]
+      },
+    ]
+  }
+}
+
+# Short-lived admin kubeconfig for the cluster above.
+resource "cleura_gardener_shoot_kubeconfig" "example" {
+  shoot_name         = cleura_gardener_shoot.example.name
+  expiration_seconds = 3600
+}
+```
+
+Provide credentials via environment variables (recommended) instead of in
+configuration:
+
+```sh
+export CLEURA_API_USERNAME="your-username"
+export CLEURA_API_TOKEN="your-token"
+```
+
+The full schema for every resource and data source — including optional
+worker labels/annotations/taints, hibernation schedules, and maintenance
+windows — is documented under [`docs/`](./docs) and on the Terraform Registry.
 
 ## Build
 
@@ -102,4 +166,15 @@ If any changes were made to the OpenAPI spec, these changes has now been applied
 
 ## Test
 
-TBD
+Run the unit tests (fast, no cloud credentials required):
+
+```sh
+make test
+```
+
+Acceptance tests create real clusters and therefore require credentials and
+`TF_ACC=1` (see the variables documented in the `testacc` target):
+
+```sh
+make testacc
+```
