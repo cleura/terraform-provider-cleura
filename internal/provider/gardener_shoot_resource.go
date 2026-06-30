@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 
 	"github.com/cleura/terraform-provider-cleura/api"
@@ -22,6 +23,7 @@ var _ resource.Resource = (*GardenerShootResource)(nil)
 
 var _ resource.ResourceWithModifyPlan = (*GardenerShootResource)(nil)
 var _ resource.ResourceWithImportState = (*GardenerShootResource)(nil)
+var _ resource.ResourceWithValidateConfig = (*GardenerShootResource)(nil)
 
 func NewGardenerShootResource() resource.Resource {
 	return &GardenerShootResource{}
@@ -266,7 +268,19 @@ func (r *GardenerShootResource) Read(ctx context.Context, req resource.ReadReque
 		return
 	}
 
-	SetShootStateValues(ctx, r.config, nil, &data, &resp.Diagnostics)
+	cluster, found, err := fetchShoot(ctx, r.config, data.Name.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Failed to get Gardener cluster", err.Error())
+		return
+	}
+	if !found {
+		// Deleted outside Terraform (console, kubeconfig expiry, ...). Drop it from
+		// state so a later plan recreates it instead of failing on every refresh.
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
+	SetShootStateValues(ctx, r.config, cluster, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -618,6 +632,12 @@ func (r *GardenerShootResource) Delete(ctx context.Context, req resource.DeleteR
 		return
 	}
 
+	if response.StatusCode == http.StatusNotFound {
+		// Already gone (e.g. deleted out of band) — the delete goal is satisfied,
+		// nothing left to wait for.
+		return
+	}
+
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		resp.Diagnostics.AddError(fmt.Sprintf("API error %d", response.StatusCode), string(body))
 		return
@@ -626,6 +646,36 @@ func (r *GardenerShootResource) Delete(ctx context.Context, req resource.DeleteR
 	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), true)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+}
+
+// ValidateConfig rejects invalid networking combinations at plan time, before any
+// apply. Without this, setting cilium_provider_config alongside a non-Cilium type
+// is only caught by the API (HTTP 409) during apply — and on a type change that
+// means the cluster is destroyed before the failed recreate.
+func (r *GardenerShootResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var data resource_gardener_shoot.GardenerShootModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if data.Networking.IsNull() || data.Networking.IsUnknown() {
+		return
+	}
+
+	// cilium_provider_config only applies to the Cilium CNI. Reject it for any other
+	// type rather than letting the API fail the apply.
+	ciliumSet := !data.Networking.CiliumProviderConfig.IsNull() && !data.Networking.CiliumProviderConfig.IsUnknown()
+	typeKnown := !data.Networking.NetworkingType.IsNull() && !data.Networking.NetworkingType.IsUnknown()
+	if ciliumSet && typeKnown && data.Networking.NetworkingType.ValueString() != "cilium" {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("networking").AtName("cilium_provider_config"),
+			"Invalid networking configuration",
+			fmt.Sprintf("cilium_provider_config can only be set when networking.type is \"cilium\", but type is %q. "+
+				"Remove the cilium_provider_config block or set networking.type = \"cilium\".",
+				data.Networking.NetworkingType.ValueString()),
+		)
 	}
 }
 
@@ -647,35 +697,126 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 
 	var state resource_gardener_shoot.GardenerShootModel
 
+	// `replacing` is decided up front so the computed-field pinning below can leave
+	// fields unknown on a replace. A replace destroys and recreates the cluster, so
+	// pinning read-only / auto-assigned values from the OLD cluster (networking
+	// `nodes`, an auto-created `network_id`/`router_id`, `workers_network_cidr`, a
+	// Gardener-randomized maintenance window, ...) would mismatch the fresh cluster
+	// and trip "Provider produced inconsistent result after apply".
+	replacing := false
+
+	// Plan-side InfrastructureConfig — needed both for the immutable-field replace
+	// decision here and for the network_id/router_id/workers_network_cidr pinning
+	// further down.
+	infraConfigValuable, diags := resource_gardener_shoot.InfrastructureConfigType{}.ValueFromObject(ctx, plan.ShootProvider.InfrastructureConfig)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	infraConfigPlan := infraConfigValuable.(resource_gardener_shoot.InfrastructureConfigValue)
+	infraConfigState := resource_gardener_shoot.NewInfrastructureConfigValueNull()
+
+	// Consistent wording for every change that forces a destroy + recreate.
+	const recreateTitle = "Cluster will be recreated"
+	const recreateConsequence = "Terraform will destroy and recreate the entire Gardener cluster — " +
+		"all worker nodes, workloads, and data will be lost. Make sure this downtime is acceptable before applying."
+
 	if !req.State.Raw.IsNull() {
 		resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
 
+		if !state.ShootProvider.InfrastructureConfig.IsNull() {
+			infraConfigValuable, diags = resource_gardener_shoot.InfrastructureConfigType{}.ValueFromObject(ctx, state.ShootProvider.InfrastructureConfig)
+			resp.Diagnostics.Append(diags...)
+			if resp.Diagnostics.HasError() {
+				return
+			}
+			infraConfigState = infraConfigValuable.(resource_gardener_shoot.InfrastructureConfigValue)
+		}
+
 		// UPDATE: Name change requires replacement
 		if !plan.Name.Equal(state.Name) {
 			resp.RequiresReplace = append(resp.RequiresReplace, path.Root("name"))
-			resp.Diagnostics.AddWarning("Updating immutable field", "Gardener Shoot clusters do not allow updating the name. This requires the cluster and its worker groups to be recreated, including removing all cluster data!")
+			replacing = true
+			resp.Diagnostics.AddWarning(recreateTitle, "Changing the cluster name cannot be applied in place. "+recreateConsequence)
 		}
 
 		if state.EnableHaControlPlane.Equal(types.BoolValue(true)) && plan.EnableHaControlPlane.Equal(types.BoolValue(false)) {
 			resp.RequiresReplace = append(resp.RequiresReplace, path.Root("enable_ha_control_plane"))
-			resp.Diagnostics.AddWarning("Updating immutable field", "Gardener Shoot clusters do not allow disabling Control Plane High-Availability after it has been enabled. This requires the cluster and its worker groups to be recreated, including removing all cluster data!")
+			replacing = true
+			resp.Diagnostics.AddWarning(recreateTitle, "Disabling control-plane high-availability cannot be applied in place. "+recreateConsequence)
+		}
+
+		// networking.type is immutable on edit: a change forces a recreate.
+		if !plan.Networking.IsNull() && !plan.Networking.IsUnknown() &&
+			!plan.Networking.NetworkingType.IsUnknown() && !plan.Networking.NetworkingType.IsNull() &&
+			!state.Networking.IsNull() && !state.Networking.IsUnknown() &&
+			!state.Networking.NetworkingType.IsUnknown() &&
+			!plan.Networking.NetworkingType.Equal(state.Networking.NetworkingType) {
+			resp.RequiresReplace = append(resp.RequiresReplace, path.Root("networking").AtName("type"))
+			replacing = true
+			resp.Diagnostics.AddWarning(
+				recreateTitle,
+				fmt.Sprintf("Changing networking.type (%s → %s) cannot be applied in place. ",
+					state.Networking.NetworkingType.ValueString(), plan.Networking.NetworkingType.ValueString())+recreateConsequence,
+			)
+		}
+
+		// shoot_provider infrastructure and load-balancer settings are fixed at
+		// cluster creation: the Cleura edit API accepts no shoot_provider fields, so
+		// an in-place change would silently no-op and trip "inconsistent result
+		// after apply". Force a replace instead (mirroring name / HA above).
+		var immutableChanged []string
+		if !infraConfigPlan.FloatingPoolName.Equal(infraConfigState.FloatingPoolName) {
+			resp.RequiresReplace = append(resp.RequiresReplace, path.Root("shoot_provider").AtName("infrastructure_config").AtName("floating_pool_name"))
+			immutableChanged = append(immutableChanged, "floating_pool_name")
+		}
+		if !plan.ShootProvider.LoadBalancerProvider.Equal(state.ShootProvider.LoadBalancerProvider) {
+			resp.RequiresReplace = append(resp.RequiresReplace, path.Root("shoot_provider").AtName("load_balancer_provider"))
+			immutableChanged = append(immutableChanged, "load_balancer_provider")
+		}
+		// network_id / router_id / workers_network_cidr are Optional+Computed: only
+		// an explicit, different known value is a real change (an omitted field is
+		// pinned from state below, so ignore those to avoid a perpetual replace).
+		for _, f := range []struct {
+			plan, state basetypes.StringValue
+			name        string
+		}{
+			{infraConfigPlan.NetworkId, infraConfigState.NetworkId, "network_id"},
+			{infraConfigPlan.RouterId, infraConfigState.RouterId, "router_id"},
+			{infraConfigPlan.WorkersNetworkCidr, infraConfigState.WorkersNetworkCidr, "workers_network_cidr"},
+		} {
+			if !f.plan.IsUnknown() && !f.plan.IsNull() && !f.plan.Equal(f.state) {
+				resp.RequiresReplace = append(resp.RequiresReplace, path.Root("shoot_provider").AtName("infrastructure_config").AtName(f.name))
+				immutableChanged = append(immutableChanged, f.name)
+			}
+		}
+		if len(immutableChanged) > 0 {
+			replacing = true
+			resp.Diagnostics.AddWarning(
+				recreateTitle,
+				fmt.Sprintf("Changing %s cannot be applied in place. ",
+					strings.Join(immutableChanged, ", "))+recreateConsequence,
+			)
 		}
 	}
 
+	// ----- Pin computed fields. On a replace, skip the pin and leave them unknown
+	// so the recreated cluster's fresh values are accepted (see `replacing` above). -----
+
 	// Handle CloudProfileName: Computed-only — copy from state to avoid perpetual drift.
 	if plan.CloudProfileName.IsUnknown() || plan.CloudProfileName.IsNull() {
-		if !req.State.Raw.IsNull() && !state.CloudProfileName.IsUnknown() {
+		if !req.State.Raw.IsNull() && !replacing && !state.CloudProfileName.IsUnknown() {
 			plan.CloudProfileName = state.CloudProfileName
 		}
 	}
 
 	// Handle EnableHaControlPlane: Optional+Computed without schema default
 	if plan.EnableHaControlPlane.IsUnknown() || plan.EnableHaControlPlane.IsNull() {
-		if req.State.Raw.IsNull() {
-			// CREATE: apply default value when not configured
+		if req.State.Raw.IsNull() || replacing {
+			// CREATE / REPLACE: leave unknown so the (re)created cluster sets it
 			plan.EnableHaControlPlane = basetypes.NewBoolUnknown()
 		} else if !state.EnableHaControlPlane.IsUnknown() {
 			// UPDATE: UseStateForUnknown - copy from state to avoid "known after apply"
@@ -685,8 +826,8 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 
 	// Handle Maintenance: Optional+Computed without schema default
 	if plan.Maintenance.IsUnknown() || plan.Maintenance.IsNull() {
-		if req.State.Raw.IsNull() {
-			// CREATE: apply default value when not configured
+		if req.State.Raw.IsNull() || replacing {
+			// CREATE / REPLACE: leave unknown (Gardener may assign a window)
 			plan.Maintenance = resource_gardener_shoot.NewMaintenanceValueUnknown()
 		} else if !state.Maintenance.IsUnknown() {
 			// UPDATE: UseStateForUnknown - copy from state to avoid "known after apply"
@@ -696,9 +837,11 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 
 	// Handle HibernationSchedules: Optional+Computed without schema default
 	if plan.HibernationSchedules.IsUnknown() || plan.HibernationSchedules.IsNull() {
-		if req.State.Raw.IsNull() {
-			// CREATE: apply default value when not configured
-			plan.HibernationSchedules = basetypes.NewListNull(resource_gardener_shoot.NewHibernationSchedulesValueNull().Type(ctx))
+		if req.State.Raw.IsNull() || replacing {
+			// CREATE / REPLACE: leave unknown so the API's hibernation shape (null vs.
+			// an empty-schedules object) is accepted either way — matches the other
+			// computed fields and avoids an empty-list-vs-null inconsistent result.
+			plan.HibernationSchedules = basetypes.NewListUnknown(resource_gardener_shoot.NewHibernationSchedulesValueNull().Type(ctx))
 		} else if !state.HibernationSchedules.IsUnknown() {
 			// UPDATE: UseStateForUnknown - copy from state to avoid "known after apply"
 			plan.HibernationSchedules = state.HibernationSchedules
@@ -707,8 +850,8 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 
 	// Handle AllowedCidrs: Optional+Computed without schema default
 	if plan.AllowedCidrs.IsUnknown() || plan.AllowedCidrs.IsNull() {
-		if req.State.Raw.IsNull() {
-			// CREATE: apply default value when not configured
+		if req.State.Raw.IsNull() || replacing {
+			// CREATE / REPLACE: leave unknown so the (re)created cluster sets it
 			plan.AllowedCidrs = basetypes.NewListUnknown(types.StringType)
 		} else if !state.AllowedCidrs.IsUnknown() {
 			// UPDATE: UseStateForUnknown - copy from state to avoid "known after apply"
@@ -717,61 +860,44 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 	}
 
 	// Handle Networking: Optional+Computed. `nodes` is read-only and `type` is
-	// immutable on edit, so pin the computed parts from prior state to avoid
-	// "known after apply" churn, and force replacement when `type` changes.
+	// immutable on edit (a change forces replace, decided above). Pin the computed
+	// parts on an in-place edit to avoid "known after apply" churn, but on a replace
+	// leave them unknown so the recreated cluster's fresh values match the plan.
 	if plan.Networking.IsUnknown() || plan.Networking.IsNull() {
-		if req.State.Raw.IsNull() {
+		if req.State.Raw.IsNull() || replacing || state.Networking.IsUnknown() || state.Networking.IsNull() {
 			plan.Networking = resource_gardener_shoot.NewNetworkingValueUnknown()
-		} else if !state.Networking.IsUnknown() {
+		} else {
 			plan.Networking = state.Networking
 		}
 	} else if !req.State.Raw.IsNull() && !state.Networking.IsUnknown() && !state.Networking.IsNull() {
-		// networking block is set on update: keep prior state for the read-only
-		// `nodes`, and for `type`/`cilium_provider_config` the user did not change.
-		pinned := state.Networking
-		if !plan.Networking.NetworkingType.IsUnknown() {
-			pinned.NetworkingType = plan.Networking.NetworkingType
-		}
-		if !plan.Networking.CiliumProviderConfig.IsUnknown() {
-			pinned.CiliumProviderConfig = plan.Networking.CiliumProviderConfig
+		// networking block is set on update. Start from the plan (keeps the user's
+		// configured `type` and `cilium_provider_config`, which Create reads back).
+		pinned := plan.Networking
+		if replacing {
+			// recreate: `nodes` is regenerated and an omitted cilium block must not
+			// inherit the old cluster's config (it would mismatch the new one), so
+			// leave both unknown for the fresh cluster to populate.
+			pinned.Nodes = basetypes.NewStringUnknown()
+			if plan.Networking.CiliumProviderConfig.IsUnknown() || plan.Networking.CiliumProviderConfig.IsNull() {
+				pinned.CiliumProviderConfig = basetypes.NewObjectUnknown(resource_gardener_shoot.CiliumProviderConfigValue{}.AttributeTypes(ctx))
+			}
+		} else {
+			// in-place edit: keep read-only `nodes` and any omitted type/cilium.
+			pinned.Nodes = state.Networking.Nodes
+			if plan.Networking.NetworkingType.IsUnknown() {
+				pinned.NetworkingType = state.Networking.NetworkingType
+			}
+			if plan.Networking.CiliumProviderConfig.IsUnknown() {
+				pinned.CiliumProviderConfig = state.Networking.CiliumProviderConfig
+			}
 		}
 		plan.Networking = pinned
-
-		if !pinned.NetworkingType.IsUnknown() && !state.Networking.NetworkingType.IsUnknown() &&
-			!pinned.NetworkingType.Equal(state.Networking.NetworkingType) {
-			resp.RequiresReplace = append(resp.RequiresReplace, path.Root("networking").AtName("type"))
-			resp.Diagnostics.AddWarning(
-				"Networking type change recreates the cluster",
-				fmt.Sprintf("Changing networking.type (%s → %s) cannot be applied in place: Terraform "+
-					"will destroy and recreate the entire Gardener cluster, including all worker nodes "+
-					"and workloads. Make sure this downtime and data loss are acceptable before applying.",
-					state.Networking.NetworkingType.ValueString(), pinned.NetworkingType.ValueString()),
-			)
-		}
-	}
-
-	// Read the planned and state InfrastructureConfig into more usable datatypes
-	infraConfigValuable, diags := resource_gardener_shoot.InfrastructureConfigType{}.ValueFromObject(ctx, plan.ShootProvider.InfrastructureConfig)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	infraConfigPlan := infraConfigValuable.(resource_gardener_shoot.InfrastructureConfigValue)
-
-	// Load the InfrastructureConfig from state if it exists
-	infraConfigState := resource_gardener_shoot.NewInfrastructureConfigValueNull()
-	if !state.ShootProvider.InfrastructureConfig.IsNull() {
-		infraConfigValuable, diags = resource_gardener_shoot.InfrastructureConfigType{}.ValueFromObject(ctx, state.ShootProvider.InfrastructureConfig)
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-		infraConfigState = infraConfigValuable.(resource_gardener_shoot.InfrastructureConfigValue)
 	}
 
 	// Handle NetworkId: Optional+Computed without schema default
 	if infraConfigPlan.NetworkId.IsUnknown() || infraConfigPlan.NetworkId.IsNull() {
-		if req.State.Raw.IsNull() {
+		if req.State.Raw.IsNull() || replacing {
+			// CREATE / REPLACE: leave unknown so the (re)created network's id is read back
 			infraConfigPlan.NetworkId = basetypes.NewStringUnknown()
 		} else if !infraConfigState.NetworkId.IsUnknown() {
 			infraConfigPlan.NetworkId = infraConfigState.NetworkId
@@ -780,7 +906,8 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 
 	// Handle RouterId: Optional+Computed without schema default
 	if infraConfigPlan.RouterId.IsUnknown() || infraConfigPlan.RouterId.IsNull() {
-		if req.State.Raw.IsNull() {
+		if req.State.Raw.IsNull() || replacing {
+			// CREATE / REPLACE: leave unknown so the (re)created router's id is read back
 			infraConfigPlan.RouterId = basetypes.NewStringUnknown()
 		} else if !infraConfigState.RouterId.IsUnknown() {
 			infraConfigPlan.RouterId = infraConfigState.RouterId
@@ -789,7 +916,8 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 
 	// Handle WorkersNetworkCidr: Optional+Computed without schema default
 	if infraConfigPlan.WorkersNetworkCidr.IsUnknown() || infraConfigPlan.WorkersNetworkCidr.IsNull() {
-		if req.State.Raw.IsNull() {
+		if req.State.Raw.IsNull() || replacing {
+			// CREATE / REPLACE: leave unknown so the (re)created cidr is read back
 			infraConfigPlan.WorkersNetworkCidr = basetypes.NewStringUnknown()
 		} else if !infraConfigState.WorkersNetworkCidr.IsUnknown() {
 			infraConfigPlan.WorkersNetworkCidr = infraConfigState.WorkersNetworkCidr
@@ -832,7 +960,7 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 		workerState, exists := workersMapState[workerPlan.Name.ValueString()]
 
 		if workerPlan.Maximum.IsUnknown() || workerPlan.Maximum.IsNull() {
-			if req.State.Raw.IsNull() {
+			if req.State.Raw.IsNull() || replacing {
 				workersListPlan[i].Maximum = basetypes.NewInt64Unknown()
 			} else if exists && !workerState.Maximum.IsUnknown() {
 				workersListPlan[i].Maximum = workerState.Maximum
@@ -840,7 +968,7 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 		}
 
 		if workerPlan.Minimum.IsUnknown() || workerPlan.Minimum.IsNull() {
-			if req.State.Raw.IsNull() {
+			if req.State.Raw.IsNull() || replacing {
 				workersListPlan[i].Minimum = basetypes.NewInt64Unknown()
 			} else if exists && !workerState.Minimum.IsUnknown() {
 				workersListPlan[i].Minimum = workerState.Minimum
@@ -848,7 +976,7 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 		}
 
 		if workerPlan.MaxSurge.IsUnknown() || workerPlan.MaxSurge.IsNull() {
-			if req.State.Raw.IsNull() {
+			if req.State.Raw.IsNull() || replacing {
 				workersListPlan[i].MaxSurge = basetypes.NewInt64Unknown()
 			} else if exists && !workerState.MaxSurge.IsUnknown() {
 				workersListPlan[i].MaxSurge = workerState.MaxSurge
@@ -865,7 +993,7 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 		}
 
 		if workerPlan.Zones.IsUnknown() || workerPlan.Zones.IsNull() {
-			if req.State.Raw.IsNull() {
+			if req.State.Raw.IsNull() || replacing {
 				workersListPlan[i].Zones = basetypes.NewListUnknown(basetypes.StringType{})
 			} else if exists && !workerState.Zones.IsUnknown() {
 				workersListPlan[i].Zones = workerState.Zones

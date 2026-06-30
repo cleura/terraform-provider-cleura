@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 
 	api "github.com/cleura/terraform-provider-cleura/api"
 	"github.com/cleura/terraform-provider-cleura/cleura"
@@ -15,6 +16,32 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
+// fetchShoot GETs a single shoot by name. found is false when the API returns
+// HTTP 404 (the cluster was deleted out of band, e.g. via the console or kubeconfig
+// expiry), letting callers drop it from state instead of failing permanently.
+func fetchShoot(ctx context.Context, cfg *cleura.ProviderConfig, name string) (cluster *api.GardenerShootShoot, found bool, err error) {
+	resp, err := cfg.Client.GardenerGetShoot(ctx, cfg.Cloud, cfg.Region, cfg.ProjectID, name)
+	if err != nil {
+		return nil, false, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, false, err
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, false, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, false, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+	var fetched api.GardenerShootShoot
+	if err := json.Unmarshal(body, &fetched); err != nil {
+		return nil, false, err
+	}
+	return &fetched, true, nil
+}
+
 func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootCluster *api.GardenerShootShoot, data *resource_gardener_shoot.GardenerShootModel, diag *diag.Diagnostics) {
 	// Fetch from API when shootCluster not provided (e.g. Read, Update after worker changes)
 	if shootCluster == nil {
@@ -22,27 +49,17 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 			diag.AddError("Missing provider config", "SetShootStateValues requires a configured Cleura provider")
 			return
 		}
-		resp, err := cfg.Client.GardenerGetShoot(ctx, cfg.Cloud, cfg.Region, cfg.ProjectID, data.Name.ValueString())
+		fetched, found, err := fetchShoot(ctx, cfg, data.Name.ValueString())
 		if err != nil {
 			diag.AddError("Failed to get Gardener cluster", err.Error())
 			return
 		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			diag.AddError("Failed to read response body", err.Error())
+		if !found {
+			diag.AddError("Gardener cluster not found",
+				fmt.Sprintf("Cluster %q no longer exists in Cleura.", data.Name.ValueString()))
 			return
 		}
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			diag.AddError(fmt.Sprintf("API error %d", resp.StatusCode), string(body))
-			return
-		}
-		var fetched api.GardenerShootShoot
-		if err := json.Unmarshal(body, &fetched); err != nil {
-			diag.AddError("Failed to unmarshal response", err.Error())
-			return
-		}
-		shootCluster = &fetched
+		shootCluster = fetched
 	}
 
 	// All values below are built from API response (data may be empty during import)

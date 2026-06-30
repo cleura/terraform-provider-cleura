@@ -23,7 +23,7 @@ terraform {
 provider "cleura" {
   cloud      = "public" # "public", "compliant", or a private cloud name
   region     = "Sto2"
-  project_id = "8a22c50af68e45c6b4dd7722cce8f93a"
+  project_id = "your-project-id"
   # Credentials are read from CLEURA_API_USERNAME and CLEURA_API_TOKEN
 }
 
