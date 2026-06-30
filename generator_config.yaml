@@ -27,7 +27,6 @@ resources:
         - "last_operation"
         - "namespace"
         - "secret_binding_name"
-        - "networking"
         - "control_plane"
         - "purpose"
         - "region"

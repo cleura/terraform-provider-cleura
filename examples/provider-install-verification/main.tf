@@ -9,19 +9,16 @@ terraform {
 provider "cleura" {
   cloud      = "public"
   region     = "Sto2"
-  project_id = "8a22c50af68e45c6b4dd7722cce8f93a"
+  project_id = "your-project-id"
 }
 
 # Reference example: every optional cleura_gardener_shoot attribute illustrated.
 # Values below match public cloud / Sto2 cloud profile (see GET .../cloud-profiles).
 resource "cleura_gardener_shoot" "example" {
   name               = "kekwait2"
-  kubernetes_version = "1.35.5"
+  kubernetes_version = "1.35.6"
 
-  allowed_cidrs = [
-    "192.168.0.0/16",
-    "10.20.30.0/24",
-  ]
+  allowed_cidrs = []
 
   enable_ha_control_plane = true
 
@@ -44,6 +41,24 @@ resource "cleura_gardener_shoot" "example" {
     }
   }
 
+  # Cilium networking (newly exposed). All cilium_provider_config fields are set so
+  # you can exercise the full block. To test the churn concern, drop individual
+  # cilium fields and re-plan (watch for "known after apply"); to test immutability,
+  # change `type` (should force replacement) vs. flipping a cilium field (in-place).
+  networking = {
+    type = "cilium" # calico | cilium
+    cilium_provider_config = {
+      debug                           = true
+      hubble_enabled                  = true
+      policy_audit_mode               = false
+      tunnel                          = "vxlan" # disabled | geneve | vxlan
+      encryption_enabled              = true
+      encryption_mode                 = "wireguard" # only accepted value
+      encryption_node_to_node_enabled = true
+      encryption_strict_mode_enabled  = true
+    }
+  }
+
   shoot_provider = {
     infrastructure_config = {
       floating_pool_name = "ext-net"
@@ -59,7 +74,7 @@ resource "cleura_gardener_shoot" "example" {
         name = "wg-primary"
         machine = {
           image_name    = "gardenlinux"
-          image_version = "1877.17.0"
+          image_version = "1877.19.0"
           type          = "b.2c4gb"
         }
         minimum     = 2
@@ -88,7 +103,7 @@ resource "cleura_gardener_shoot" "example" {
         name = "wg-batch"
         machine = {
           image_name    = "gardenlinux"
-          image_version = "1877.17.0"
+          image_version = "1877.19.0"
           type          = "b.4c8gb"
         }
         minimum     = 1

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 
 	api "github.com/cleura/terraform-provider-cleura/api"
 	"github.com/cleura/terraform-provider-cleura/cleura"
@@ -15,6 +16,32 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
+// fetchShoot GETs a single shoot by name. found is false when the API returns
+// HTTP 404 (the cluster was deleted out of band, e.g. via the console or kubeconfig
+// expiry), letting callers drop it from state instead of failing permanently.
+func fetchShoot(ctx context.Context, cfg *cleura.ProviderConfig, name string) (cluster *api.GardenerShootShoot, found bool, err error) {
+	resp, err := cfg.Client.GardenerGetShoot(ctx, cfg.Cloud, cfg.Region, cfg.ProjectID, name)
+	if err != nil {
+		return nil, false, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, false, err
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, false, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, false, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+	var fetched api.GardenerShootShoot
+	if err := json.Unmarshal(body, &fetched); err != nil {
+		return nil, false, err
+	}
+	return &fetched, true, nil
+}
+
 func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootCluster *api.GardenerShootShoot, data *resource_gardener_shoot.GardenerShootModel, diag *diag.Diagnostics) {
 	// Fetch from API when shootCluster not provided (e.g. Read, Update after worker changes)
 	if shootCluster == nil {
@@ -22,27 +49,17 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 			diag.AddError("Missing provider config", "SetShootStateValues requires a configured Cleura provider")
 			return
 		}
-		resp, err := cfg.Client.GardenerGetShoot(ctx, cfg.Cloud, cfg.Region, cfg.ProjectID, data.Name.ValueString())
+		fetched, found, err := fetchShoot(ctx, cfg, data.Name.ValueString())
 		if err != nil {
 			diag.AddError("Failed to get Gardener cluster", err.Error())
 			return
 		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			diag.AddError("Failed to read response body", err.Error())
+		if !found {
+			diag.AddError("Gardener cluster not found",
+				fmt.Sprintf("Cluster %q no longer exists in Cleura.", data.Name.ValueString()))
 			return
 		}
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			diag.AddError(fmt.Sprintf("API error %d", resp.StatusCode), string(body))
-			return
-		}
-		var fetched api.GardenerShootShoot
-		if err := json.Unmarshal(body, &fetched); err != nil {
-			diag.AddError("Failed to unmarshal response", err.Error())
-			return
-		}
-		shootCluster = &fetched
+		shootCluster = fetched
 	}
 
 	// All values below are built from API response (data may be empty during import)
@@ -81,7 +98,11 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 		}
 		data.AllowedCidrs = allowedCidrsVal
 	} else {
-		data.AllowedCidrs = basetypes.NewListNull(basetypes.StringType{})
+		// Empty/absent allow-list: return an empty (non-null) list so an explicit
+		// `allowed_cidrs = []` round-trips instead of tripping "inconsistent result
+		// after apply" (bug #7). Optional+Computed + ModifyPlan keep it stable when
+		// the attribute is omitted entirely.
+		data.AllowedCidrs = basetypes.NewListValueMust(basetypes.StringType{}, nil)
 	}
 
 	// EnableHaControlPlane (ControlPlane with HighAvailability indicates HA is enabled)
@@ -204,6 +225,58 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 		return
 	}
 	data.Maintenance = maintenanceVal
+
+	// Networking is always present in the read response. cilium_provider_config is
+	// nil when the networking type is not cilium -> map it to a null object.
+	var ciliumObj basetypes.ObjectValue
+	if shootCluster.Networking.CiliumProviderConfig != nil {
+		c := shootCluster.Networking.CiliumProviderConfig
+		encMode := basetypes.NewStringNull()
+		if c.EncryptionMode != nil {
+			encMode = basetypes.NewStringValue(string(*c.EncryptionMode))
+		}
+		nodeToNode := basetypes.NewBoolNull()
+		if c.EncryptionNodeToNodeEnabled != nil {
+			nodeToNode = basetypes.NewBoolValue(*c.EncryptionNodeToNodeEnabled)
+		}
+		strictMode := basetypes.NewBoolNull()
+		if c.EncryptionStrictModeEnabled != nil {
+			strictMode = basetypes.NewBoolValue(*c.EncryptionStrictModeEnabled)
+		}
+		ciliumObj, diags = types.ObjectValue(
+			resource_gardener_shoot.CiliumProviderConfigValue{}.AttributeTypes(ctx),
+			map[string]attr.Value{
+				"debug":                           basetypes.NewBoolValue(c.Debug),
+				"encryption_enabled":              basetypes.NewBoolValue(c.EncryptionEnabled),
+				"encryption_mode":                 encMode,
+				"encryption_node_to_node_enabled": nodeToNode,
+				"encryption_strict_mode_enabled":  strictMode,
+				"hubble_enabled":                  basetypes.NewBoolValue(c.HubbleEnabled),
+				"policy_audit_mode":               basetypes.NewBoolValue(c.PolicyAuditMode),
+				"tunnel":                          basetypes.NewStringValue(string(c.Tunnel)),
+			},
+		)
+		diag.Append(diags...)
+		if diag.HasError() {
+			return
+		}
+	} else {
+		ciliumObj = basetypes.NewObjectNull(resource_gardener_shoot.CiliumProviderConfigValue{}.AttributeTypes(ctx))
+	}
+
+	networkingVal, diags := resource_gardener_shoot.NewNetworkingValue(
+		resource_gardener_shoot.NetworkingValue{}.AttributeTypes(ctx),
+		map[string]attr.Value{
+			"cilium_provider_config": ciliumObj,
+			"nodes":                  basetypes.NewStringValue(shootCluster.Networking.Nodes),
+			"type":                   basetypes.NewStringValue(string(shootCluster.Networking.Type)),
+		},
+	)
+	diag.Append(diags...)
+	if diag.HasError() {
+		return
+	}
+	data.Networking = networkingVal
 
 	// Build workers from API response (data may be empty during import).
 	//

@@ -205,6 +205,118 @@
 						}
 					},
 					{
+						"name": "networking",
+						"single_nested": {
+							"computed_optional_required": "computed_optional",
+							"attributes": [
+								{
+									"name": "cilium_provider_config",
+									"single_nested": {
+										"computed_optional_required": "computed_optional",
+										"attributes": [
+											{
+												"name": "debug",
+												"bool": {
+													"computed_optional_required": "computed_optional"
+												}
+											},
+											{
+												"name": "encryption_enabled",
+												"bool": {
+													"computed_optional_required": "computed_optional"
+												}
+											},
+											{
+												"name": "encryption_mode",
+												"string": {
+													"computed_optional_required": "computed_optional",
+													"validators": [
+														{
+															"custom": {
+																"imports": [
+																	{
+																		"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																	}
+																],
+																"schema_definition": "stringvalidator.OneOf(\n\"wireguard\",\n)"
+															}
+														}
+													]
+												}
+											},
+											{
+												"name": "encryption_node_to_node_enabled",
+												"bool": {
+													"computed_optional_required": "computed_optional"
+												}
+											},
+											{
+												"name": "encryption_strict_mode_enabled",
+												"bool": {
+													"computed_optional_required": "computed_optional"
+												}
+											},
+											{
+												"name": "hubble_enabled",
+												"bool": {
+													"computed_optional_required": "computed_optional"
+												}
+											},
+											{
+												"name": "policy_audit_mode",
+												"bool": {
+													"computed_optional_required": "computed_optional"
+												}
+											},
+											{
+												"name": "tunnel",
+												"string": {
+													"computed_optional_required": "computed_optional",
+													"validators": [
+														{
+															"custom": {
+																"imports": [
+																	{
+																		"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+																	}
+																],
+																"schema_definition": "stringvalidator.OneOf(\n\"vxlan\",\n\"geneve\",\n\"disabled\",\n)"
+															}
+														}
+													]
+												}
+											}
+										]
+									}
+								},
+								{
+									"name": "type",
+									"string": {
+										"computed_optional_required": "computed_optional",
+										"validators": [
+											{
+												"custom": {
+													"imports": [
+														{
+															"path": "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+														}
+													],
+													"schema_definition": "stringvalidator.OneOf(\n\"calico\",\n\"cilium\",\n)"
+												}
+											}
+										]
+									}
+								},
+								{
+									"name": "nodes",
+									"string": {
+										"computed_optional_required": "computed"
+									}
+								}
+							]
+						}
+					},
+					{
 						"name": "shoot_provider",
 						"single_nested": {
 							"computed_optional_required": "required",

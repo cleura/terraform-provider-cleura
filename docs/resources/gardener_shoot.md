@@ -25,6 +25,16 @@ resource "cleura_gardener_shoot" "example" {
   # enabled — doing so forces the cluster to be recreated.
   enable_ha_control_plane = true
 
+  # Cluster networking. `type` is immutable (changing it recreates the cluster);
+  # `cilium_provider_config` only applies when type = "cilium".
+  networking = {
+    type = "cilium"
+    cilium_provider_config = {
+      hubble_enabled = true
+      tunnel         = "geneve"
+    }
+  }
+
   # Automatic maintenance window (times are UTC, cron-style).
   maintenance = {
     auto_update = {
@@ -101,6 +111,7 @@ resource "cleura_gardener_shoot" "example" {
 - `enable_ha_control_plane` (Boolean)
 - `hibernation_schedules` (Attributes List) (see [below for nested schema](#nestedatt--hibernation_schedules))
 - `maintenance` (Attributes) (see [below for nested schema](#nestedatt--maintenance))
+- `networking` (Attributes) (see [below for nested schema](#nestedatt--networking))
 
 ### Read-Only
 
@@ -225,3 +236,31 @@ Required:
 
 - `begin` (String)
 - `end` (String)
+
+
+
+<a id="nestedatt--networking"></a>
+### Nested Schema for `networking`
+
+Optional:
+
+- `cilium_provider_config` (Attributes) (see [below for nested schema](#nestedatt--networking--cilium_provider_config))
+- `type` (String)
+
+Read-Only:
+
+- `nodes` (String)
+
+<a id="nestedatt--networking--cilium_provider_config"></a>
+### Nested Schema for `networking.cilium_provider_config`
+
+Optional:
+
+- `debug` (Boolean)
+- `encryption_enabled` (Boolean)
+- `encryption_mode` (String)
+- `encryption_node_to_node_enabled` (Boolean)
+- `encryption_strict_mode_enabled` (Boolean)
+- `hubble_enabled` (Boolean)
+- `policy_audit_mode` (Boolean)
+- `tunnel` (String)

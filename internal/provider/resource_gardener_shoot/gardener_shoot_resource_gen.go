@@ -125,6 +125,85 @@ func GardenerShootResourceSchema(ctx context.Context) schema.Schema {
 					stringvalidator.RegexMatches(regexp.MustCompile("[A-Za-z0-9\\-]+"), ""),
 				},
 			},
+			"networking": schema.SingleNestedAttribute{
+				Attributes: map[string]schema.Attribute{
+					"cilium_provider_config": schema.SingleNestedAttribute{
+						Attributes: map[string]schema.Attribute{
+							"debug": schema.BoolAttribute{
+								Optional: true,
+								Computed: true,
+							},
+							"encryption_enabled": schema.BoolAttribute{
+								Optional: true,
+								Computed: true,
+							},
+							"encryption_mode": schema.StringAttribute{
+								Optional: true,
+								Computed: true,
+								Validators: []validator.String{
+									stringvalidator.OneOf(
+										"wireguard",
+									),
+								},
+							},
+							"encryption_node_to_node_enabled": schema.BoolAttribute{
+								Optional: true,
+								Computed: true,
+							},
+							"encryption_strict_mode_enabled": schema.BoolAttribute{
+								Optional: true,
+								Computed: true,
+							},
+							"hubble_enabled": schema.BoolAttribute{
+								Optional: true,
+								Computed: true,
+							},
+							"policy_audit_mode": schema.BoolAttribute{
+								Optional: true,
+								Computed: true,
+							},
+							"tunnel": schema.StringAttribute{
+								Optional: true,
+								Computed: true,
+								Validators: []validator.String{
+									stringvalidator.OneOf(
+										"vxlan",
+										"geneve",
+										"disabled",
+									),
+								},
+							},
+						},
+						CustomType: CiliumProviderConfigType{
+							ObjectType: types.ObjectType{
+								AttrTypes: CiliumProviderConfigValue{}.AttributeTypes(ctx),
+							},
+						},
+						Optional: true,
+						Computed: true,
+					},
+					"nodes": schema.StringAttribute{
+						Computed: true,
+					},
+					"type": schema.StringAttribute{
+						Optional: true,
+						Computed: true,
+						Validators: []validator.String{
+							stringvalidator.OneOf(
+								"calico",
+								"cilium",
+							),
+						},
+					},
+				},
+				CustomType: NetworkingType{
+					ObjectType: types.ObjectType{
+						AttrTypes: NetworkingValue{}.AttributeTypes(ctx),
+					},
+				},
+				Optional: true,
+				Computed: true,
+			},
 			"shoot_provider": schema.SingleNestedAttribute{
 				Attributes: map[string]schema.Attribute{
 					"infrastructure_config": schema.SingleNestedAttribute{
@@ -334,6 +413,7 @@ type GardenerShootModel struct {
 	KubernetesVersion    types.String       `tfsdk:"kubernetes_version"`
 	Maintenance          MaintenanceValue   `tfsdk:"maintenance"`
 	Name                 types.String       `tfsdk:"name"`
+	Networking           NetworkingValue    `tfsdk:"networking"`
 	ShootProvider        ShootProviderValue `tfsdk:"shoot_provider"`
 }
 
@@ -1904,6 +1984,1176 @@ func (v TimeWindowValue) AttributeTypes(ctx context.Context) map[string]attr.Typ
 	return map[string]attr.Type{
 		"begin": basetypes.StringType{},
 		"end":   basetypes.StringType{},
+	}
+}
+
+var _ basetypes.ObjectTypable = NetworkingType{}
+
+type NetworkingType struct {
+	basetypes.ObjectType
+}
+
+func (t NetworkingType) Equal(o attr.Type) bool {
+	other, ok := o.(NetworkingType)
+
+	if !ok {
+		return false
+	}
+
+	return t.ObjectType.Equal(other.ObjectType)
+}
+
+func (t NetworkingType) String() string {
+	return "NetworkingType"
+}
+
+func (t NetworkingType) ValueFromObject(ctx context.Context, in basetypes.ObjectValue) (basetypes.ObjectValuable, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	attributes := in.Attributes()
+
+	ciliumProviderConfigAttribute, ok := attributes["cilium_provider_config"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`cilium_provider_config is missing from object`)
+
+		return nil, diags
+	}
+
+	ciliumProviderConfigVal, ok := ciliumProviderConfigAttribute.(basetypes.ObjectValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`cilium_provider_config expected to be basetypes.ObjectValue, was: %T`, ciliumProviderConfigAttribute))
+	}
+
+	nodesAttribute, ok := attributes["nodes"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`nodes is missing from object`)
+
+		return nil, diags
+	}
+
+	nodesVal, ok := nodesAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`nodes expected to be basetypes.StringValue, was: %T`, nodesAttribute))
+	}
+
+	typeAttribute, ok := attributes["type"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`type is missing from object`)
+
+		return nil, diags
+	}
+
+	typeVal, ok := typeAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`type expected to be basetypes.StringValue, was: %T`, typeAttribute))
+	}
+
+	if diags.HasError() {
+		return nil, diags
+	}
+
+	return NetworkingValue{
+		CiliumProviderConfig: ciliumProviderConfigVal,
+		Nodes:                nodesVal,
+		NetworkingType:       typeVal,
+		state:                attr.ValueStateKnown,
+	}, diags
+}
+
+func NewNetworkingValueNull() NetworkingValue {
+	return NetworkingValue{
+		state: attr.ValueStateNull,
+	}
+}
+
+func NewNetworkingValueUnknown() NetworkingValue {
+	return NetworkingValue{
+		state: attr.ValueStateUnknown,
+	}
+}
+
+func NewNetworkingValue(attributeTypes map[string]attr.Type, attributes map[string]attr.Value) (NetworkingValue, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	// Reference: https://github.com/hashicorp/terraform-plugin-framework/issues/521
+	ctx := context.Background()
+
+	for name, attributeType := range attributeTypes {
+		attribute, ok := attributes[name]
+
+		if !ok {
+			diags.AddError(
+				"Missing NetworkingValue Attribute Value",
+				"While creating a NetworkingValue value, a missing attribute value was detected. "+
+					"A NetworkingValue must contain values for all attributes, even if null or unknown. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("NetworkingValue Attribute Name (%s) Expected Type: %s", name, attributeType.String()),
+			)
+
+			continue
+		}
+
+		if !attributeType.Equal(attribute.Type(ctx)) {
+			diags.AddError(
+				"Invalid NetworkingValue Attribute Type",
+				"While creating a NetworkingValue value, an invalid attribute value was detected. "+
+					"A NetworkingValue must use a matching attribute type for the value. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("NetworkingValue Attribute Name (%s) Expected Type: %s\n", name, attributeType.String())+
+					fmt.Sprintf("NetworkingValue Attribute Name (%s) Given Type: %s", name, attribute.Type(ctx)),
+			)
+		}
+	}
+
+	for name := range attributes {
+		_, ok := attributeTypes[name]
+
+		if !ok {
+			diags.AddError(
+				"Extra NetworkingValue Attribute Value",
+				"While creating a NetworkingValue value, an extra attribute value was detected. "+
+					"A NetworkingValue must not contain values beyond the expected attribute types. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("Extra NetworkingValue Attribute Name: %s", name),
+			)
+		}
+	}
+
+	if diags.HasError() {
+		return NewNetworkingValueUnknown(), diags
+	}
+
+	ciliumProviderConfigAttribute, ok := attributes["cilium_provider_config"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`cilium_provider_config is missing from object`)
+
+		return NewNetworkingValueUnknown(), diags
+	}
+
+	ciliumProviderConfigVal, ok := ciliumProviderConfigAttribute.(basetypes.ObjectValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`cilium_provider_config expected to be basetypes.ObjectValue, was: %T`, ciliumProviderConfigAttribute))
+	}
+
+	nodesAttribute, ok := attributes["nodes"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`nodes is missing from object`)
+
+		return NewNetworkingValueUnknown(), diags
+	}
+
+	nodesVal, ok := nodesAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`nodes expected to be basetypes.StringValue, was: %T`, nodesAttribute))
+	}
+
+	typeAttribute, ok := attributes["type"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`type is missing from object`)
+
+		return NewNetworkingValueUnknown(), diags
+	}
+
+	typeVal, ok := typeAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`type expected to be basetypes.StringValue, was: %T`, typeAttribute))
+	}
+
+	if diags.HasError() {
+		return NewNetworkingValueUnknown(), diags
+	}
+
+	return NetworkingValue{
+		CiliumProviderConfig: ciliumProviderConfigVal,
+		Nodes:                nodesVal,
+		NetworkingType:       typeVal,
+		state:                attr.ValueStateKnown,
+	}, diags
+}
+
+func NewNetworkingValueMust(attributeTypes map[string]attr.Type, attributes map[string]attr.Value) NetworkingValue {
+	object, diags := NewNetworkingValue(attributeTypes, attributes)
+
+	if diags.HasError() {
+		// This could potentially be added to the diag package.
+		diagsStrings := make([]string, 0, len(diags))
+
+		for _, diagnostic := range diags {
+			diagsStrings = append(diagsStrings, fmt.Sprintf(
+				"%s | %s | %s",
+				diagnostic.Severity(),
+				diagnostic.Summary(),
+				diagnostic.Detail()))
+		}
+
+		panic("NewNetworkingValueMust received error(s): " + strings.Join(diagsStrings, "\n"))
+	}
+
+	return object
+}
+
+func (t NetworkingType) ValueFromTerraform(ctx context.Context, in tftypes.Value) (attr.Value, error) {
+	if in.Type() == nil {
+		return NewNetworkingValueNull(), nil
+	}
+
+	if !in.Type().Equal(t.TerraformType(ctx)) {
+		return nil, fmt.Errorf("expected %s, got %s", t.TerraformType(ctx), in.Type())
+	}
+
+	if !in.IsKnown() {
+		return NewNetworkingValueUnknown(), nil
+	}
+
+	if in.IsNull() {
+		return NewNetworkingValueNull(), nil
+	}
+
+	attributes := map[string]attr.Value{}
+
+	val := map[string]tftypes.Value{}
+
+	err := in.As(&val)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for k, v := range val {
+		a, err := t.AttrTypes[k].ValueFromTerraform(ctx, v)
+
+		if err != nil {
+			return nil, err
+		}
+
+		attributes[k] = a
+	}
+
+	return NewNetworkingValueMust(NetworkingValue{}.AttributeTypes(ctx), attributes), nil
+}
+
+func (t NetworkingType) ValueType(ctx context.Context) attr.Value {
+	return NetworkingValue{}
+}
+
+var _ basetypes.ObjectValuable = NetworkingValue{}
+
+type NetworkingValue struct {
+	CiliumProviderConfig basetypes.ObjectValue `tfsdk:"cilium_provider_config"`
+	Nodes                basetypes.StringValue `tfsdk:"nodes"`
+	NetworkingType       basetypes.StringValue `tfsdk:"type"`
+	state                attr.ValueState
+}
+
+func (v NetworkingValue) ToTerraformValue(ctx context.Context) (tftypes.Value, error) {
+	attrTypes := make(map[string]tftypes.Type, 3)
+
+	var val tftypes.Value
+	var err error
+
+	attrTypes["cilium_provider_config"] = basetypes.ObjectType{
+		AttrTypes: CiliumProviderConfigValue{}.AttributeTypes(ctx),
+	}.TerraformType(ctx)
+	attrTypes["nodes"] = basetypes.StringType{}.TerraformType(ctx)
+	attrTypes["type"] = basetypes.StringType{}.TerraformType(ctx)
+
+	objectType := tftypes.Object{AttributeTypes: attrTypes}
+
+	switch v.state {
+	case attr.ValueStateKnown:
+		vals := make(map[string]tftypes.Value, 3)
+
+		val, err = v.CiliumProviderConfig.ToTerraformValue(ctx)
+
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["cilium_provider_config"] = val
+
+		val, err = v.Nodes.ToTerraformValue(ctx)
+
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["nodes"] = val
+
+		val, err = v.NetworkingType.ToTerraformValue(ctx)
+
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["type"] = val
+
+		if err := tftypes.ValidateValue(objectType, vals); err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		return tftypes.NewValue(objectType, vals), nil
+	case attr.ValueStateNull:
+		return tftypes.NewValue(objectType, nil), nil
+	case attr.ValueStateUnknown:
+		return tftypes.NewValue(objectType, tftypes.UnknownValue), nil
+	default:
+		panic(fmt.Sprintf("unhandled Object state in ToTerraformValue: %s", v.state))
+	}
+}
+
+func (v NetworkingValue) IsNull() bool {
+	return v.state == attr.ValueStateNull
+}
+
+func (v NetworkingValue) IsUnknown() bool {
+	return v.state == attr.ValueStateUnknown
+}
+
+func (v NetworkingValue) String() string {
+	return "NetworkingValue"
+}
+
+func (v NetworkingValue) ToObjectValue(ctx context.Context) (basetypes.ObjectValue, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	var ciliumProviderConfig basetypes.ObjectValue
+
+	if v.CiliumProviderConfig.IsNull() {
+		ciliumProviderConfig = types.ObjectNull(
+			CiliumProviderConfigValue{}.AttributeTypes(ctx),
+		)
+	}
+
+	if v.CiliumProviderConfig.IsUnknown() {
+		ciliumProviderConfig = types.ObjectUnknown(
+			CiliumProviderConfigValue{}.AttributeTypes(ctx),
+		)
+	}
+
+	if !v.CiliumProviderConfig.IsNull() && !v.CiliumProviderConfig.IsUnknown() {
+		ciliumProviderConfig = types.ObjectValueMust(
+			CiliumProviderConfigValue{}.AttributeTypes(ctx),
+			v.CiliumProviderConfig.Attributes(),
+		)
+	}
+
+	attributeTypes := map[string]attr.Type{
+		"cilium_provider_config": basetypes.ObjectType{
+			AttrTypes: CiliumProviderConfigValue{}.AttributeTypes(ctx),
+		},
+		"nodes": basetypes.StringType{},
+		"type":  basetypes.StringType{},
+	}
+
+	if v.IsNull() {
+		return types.ObjectNull(attributeTypes), diags
+	}
+
+	if v.IsUnknown() {
+		return types.ObjectUnknown(attributeTypes), diags
+	}
+
+	objVal, diags := types.ObjectValue(
+		attributeTypes,
+		map[string]attr.Value{
+			"cilium_provider_config": ciliumProviderConfig,
+			"nodes":                  v.Nodes,
+			"type":                   v.NetworkingType,
+		})
+
+	return objVal, diags
+}
+
+func (v NetworkingValue) Equal(o attr.Value) bool {
+	other, ok := o.(NetworkingValue)
+
+	if !ok {
+		return false
+	}
+
+	if v.state != other.state {
+		return false
+	}
+
+	if v.state != attr.ValueStateKnown {
+		return true
+	}
+
+	if !v.CiliumProviderConfig.Equal(other.CiliumProviderConfig) {
+		return false
+	}
+
+	if !v.Nodes.Equal(other.Nodes) {
+		return false
+	}
+
+	if !v.NetworkingType.Equal(other.NetworkingType) {
+		return false
+	}
+
+	return true
+}
+
+func (v NetworkingValue) Type(ctx context.Context) attr.Type {
+	return NetworkingType{
+		basetypes.ObjectType{
+			AttrTypes: v.AttributeTypes(ctx),
+		},
+	}
+}
+
+func (v NetworkingValue) AttributeTypes(ctx context.Context) map[string]attr.Type {
+	return map[string]attr.Type{
+		"cilium_provider_config": basetypes.ObjectType{
+			AttrTypes: CiliumProviderConfigValue{}.AttributeTypes(ctx),
+		},
+		"nodes": basetypes.StringType{},
+		"type":  basetypes.StringType{},
+	}
+}
+
+var _ basetypes.ObjectTypable = CiliumProviderConfigType{}
+
+type CiliumProviderConfigType struct {
+	basetypes.ObjectType
+}
+
+func (t CiliumProviderConfigType) Equal(o attr.Type) bool {
+	other, ok := o.(CiliumProviderConfigType)
+
+	if !ok {
+		return false
+	}
+
+	return t.ObjectType.Equal(other.ObjectType)
+}
+
+func (t CiliumProviderConfigType) String() string {
+	return "CiliumProviderConfigType"
+}
+
+func (t CiliumProviderConfigType) ValueFromObject(ctx context.Context, in basetypes.ObjectValue) (basetypes.ObjectValuable, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	attributes := in.Attributes()
+
+	debugAttribute, ok := attributes["debug"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`debug is missing from object`)
+
+		return nil, diags
+	}
+
+	debugVal, ok := debugAttribute.(basetypes.BoolValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`debug expected to be basetypes.BoolValue, was: %T`, debugAttribute))
+	}
+
+	encryptionEnabledAttribute, ok := attributes["encryption_enabled"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`encryption_enabled is missing from object`)
+
+		return nil, diags
+	}
+
+	encryptionEnabledVal, ok := encryptionEnabledAttribute.(basetypes.BoolValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`encryption_enabled expected to be basetypes.BoolValue, was: %T`, encryptionEnabledAttribute))
+	}
+
+	encryptionModeAttribute, ok := attributes["encryption_mode"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`encryption_mode is missing from object`)
+
+		return nil, diags
+	}
+
+	encryptionModeVal, ok := encryptionModeAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`encryption_mode expected to be basetypes.StringValue, was: %T`, encryptionModeAttribute))
+	}
+
+	encryptionNodeToNodeEnabledAttribute, ok := attributes["encryption_node_to_node_enabled"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`encryption_node_to_node_enabled is missing from object`)
+
+		return nil, diags
+	}
+
+	encryptionNodeToNodeEnabledVal, ok := encryptionNodeToNodeEnabledAttribute.(basetypes.BoolValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`encryption_node_to_node_enabled expected to be basetypes.BoolValue, was: %T`, encryptionNodeToNodeEnabledAttribute))
+	}
+
+	encryptionStrictModeEnabledAttribute, ok := attributes["encryption_strict_mode_enabled"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`encryption_strict_mode_enabled is missing from object`)
+
+		return nil, diags
+	}
+
+	encryptionStrictModeEnabledVal, ok := encryptionStrictModeEnabledAttribute.(basetypes.BoolValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`encryption_strict_mode_enabled expected to be basetypes.BoolValue, was: %T`, encryptionStrictModeEnabledAttribute))
+	}
+
+	hubbleEnabledAttribute, ok := attributes["hubble_enabled"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`hubble_enabled is missing from object`)
+
+		return nil, diags
+	}
+
+	hubbleEnabledVal, ok := hubbleEnabledAttribute.(basetypes.BoolValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`hubble_enabled expected to be basetypes.BoolValue, was: %T`, hubbleEnabledAttribute))
+	}
+
+	policyAuditModeAttribute, ok := attributes["policy_audit_mode"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`policy_audit_mode is missing from object`)
+
+		return nil, diags
+	}
+
+	policyAuditModeVal, ok := policyAuditModeAttribute.(basetypes.BoolValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`policy_audit_mode expected to be basetypes.BoolValue, was: %T`, policyAuditModeAttribute))
+	}
+
+	tunnelAttribute, ok := attributes["tunnel"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`tunnel is missing from object`)
+
+		return nil, diags
+	}
+
+	tunnelVal, ok := tunnelAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`tunnel expected to be basetypes.StringValue, was: %T`, tunnelAttribute))
+	}
+
+	if diags.HasError() {
+		return nil, diags
+	}
+
+	return CiliumProviderConfigValue{
+		Debug:                       debugVal,
+		EncryptionEnabled:           encryptionEnabledVal,
+		EncryptionMode:              encryptionModeVal,
+		EncryptionNodeToNodeEnabled: encryptionNodeToNodeEnabledVal,
+		EncryptionStrictModeEnabled: encryptionStrictModeEnabledVal,
+		HubbleEnabled:               hubbleEnabledVal,
+		PolicyAuditMode:             policyAuditModeVal,
+		Tunnel:                      tunnelVal,
+		state:                       attr.ValueStateKnown,
+	}, diags
+}
+
+func NewCiliumProviderConfigValueNull() CiliumProviderConfigValue {
+	return CiliumProviderConfigValue{
+		state: attr.ValueStateNull,
+	}
+}
+
+func NewCiliumProviderConfigValueUnknown() CiliumProviderConfigValue {
+	return CiliumProviderConfigValue{
+		state: attr.ValueStateUnknown,
+	}
+}
+
+func NewCiliumProviderConfigValue(attributeTypes map[string]attr.Type, attributes map[string]attr.Value) (CiliumProviderConfigValue, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	// Reference: https://github.com/hashicorp/terraform-plugin-framework/issues/521
+	ctx := context.Background()
+
+	for name, attributeType := range attributeTypes {
+		attribute, ok := attributes[name]
+
+		if !ok {
+			diags.AddError(
+				"Missing CiliumProviderConfigValue Attribute Value",
+				"While creating a CiliumProviderConfigValue value, a missing attribute value was detected. "+
+					"A CiliumProviderConfigValue must contain values for all attributes, even if null or unknown. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("CiliumProviderConfigValue Attribute Name (%s) Expected Type: %s", name, attributeType.String()),
+			)
+
+			continue
+		}
+
+		if !attributeType.Equal(attribute.Type(ctx)) {
+			diags.AddError(
+				"Invalid CiliumProviderConfigValue Attribute Type",
+				"While creating a CiliumProviderConfigValue value, an invalid attribute value was detected. "+
+					"A CiliumProviderConfigValue must use a matching attribute type for the value. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("CiliumProviderConfigValue Attribute Name (%s) Expected Type: %s\n", name, attributeType.String())+
+					fmt.Sprintf("CiliumProviderConfigValue Attribute Name (%s) Given Type: %s", name, attribute.Type(ctx)),
+			)
+		}
+	}
+
+	for name := range attributes {
+		_, ok := attributeTypes[name]
+
+		if !ok {
+			diags.AddError(
+				"Extra CiliumProviderConfigValue Attribute Value",
+				"While creating a CiliumProviderConfigValue value, an extra attribute value was detected. "+
+					"A CiliumProviderConfigValue must not contain values beyond the expected attribute types. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("Extra CiliumProviderConfigValue Attribute Name: %s", name),
+			)
+		}
+	}
+
+	if diags.HasError() {
+		return NewCiliumProviderConfigValueUnknown(), diags
+	}
+
+	debugAttribute, ok := attributes["debug"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`debug is missing from object`)
+
+		return NewCiliumProviderConfigValueUnknown(), diags
+	}
+
+	debugVal, ok := debugAttribute.(basetypes.BoolValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`debug expected to be basetypes.BoolValue, was: %T`, debugAttribute))
+	}
+
+	encryptionEnabledAttribute, ok := attributes["encryption_enabled"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`encryption_enabled is missing from object`)
+
+		return NewCiliumProviderConfigValueUnknown(), diags
+	}
+
+	encryptionEnabledVal, ok := encryptionEnabledAttribute.(basetypes.BoolValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`encryption_enabled expected to be basetypes.BoolValue, was: %T`, encryptionEnabledAttribute))
+	}
+
+	encryptionModeAttribute, ok := attributes["encryption_mode"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`encryption_mode is missing from object`)
+
+		return NewCiliumProviderConfigValueUnknown(), diags
+	}
+
+	encryptionModeVal, ok := encryptionModeAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`encryption_mode expected to be basetypes.StringValue, was: %T`, encryptionModeAttribute))
+	}
+
+	encryptionNodeToNodeEnabledAttribute, ok := attributes["encryption_node_to_node_enabled"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`encryption_node_to_node_enabled is missing from object`)
+
+		return NewCiliumProviderConfigValueUnknown(), diags
+	}
+
+	encryptionNodeToNodeEnabledVal, ok := encryptionNodeToNodeEnabledAttribute.(basetypes.BoolValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`encryption_node_to_node_enabled expected to be basetypes.BoolValue, was: %T`, encryptionNodeToNodeEnabledAttribute))
+	}
+
+	encryptionStrictModeEnabledAttribute, ok := attributes["encryption_strict_mode_enabled"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`encryption_strict_mode_enabled is missing from object`)
+
+		return NewCiliumProviderConfigValueUnknown(), diags
+	}
+
+	encryptionStrictModeEnabledVal, ok := encryptionStrictModeEnabledAttribute.(basetypes.BoolValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`encryption_strict_mode_enabled expected to be basetypes.BoolValue, was: %T`, encryptionStrictModeEnabledAttribute))
+	}
+
+	hubbleEnabledAttribute, ok := attributes["hubble_enabled"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`hubble_enabled is missing from object`)
+
+		return NewCiliumProviderConfigValueUnknown(), diags
+	}
+
+	hubbleEnabledVal, ok := hubbleEnabledAttribute.(basetypes.BoolValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`hubble_enabled expected to be basetypes.BoolValue, was: %T`, hubbleEnabledAttribute))
+	}
+
+	policyAuditModeAttribute, ok := attributes["policy_audit_mode"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`policy_audit_mode is missing from object`)
+
+		return NewCiliumProviderConfigValueUnknown(), diags
+	}
+
+	policyAuditModeVal, ok := policyAuditModeAttribute.(basetypes.BoolValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`policy_audit_mode expected to be basetypes.BoolValue, was: %T`, policyAuditModeAttribute))
+	}
+
+	tunnelAttribute, ok := attributes["tunnel"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`tunnel is missing from object`)
+
+		return NewCiliumProviderConfigValueUnknown(), diags
+	}
+
+	tunnelVal, ok := tunnelAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`tunnel expected to be basetypes.StringValue, was: %T`, tunnelAttribute))
+	}
+
+	if diags.HasError() {
+		return NewCiliumProviderConfigValueUnknown(), diags
+	}
+
+	return CiliumProviderConfigValue{
+		Debug:                       debugVal,
+		EncryptionEnabled:           encryptionEnabledVal,
+		EncryptionMode:              encryptionModeVal,
+		EncryptionNodeToNodeEnabled: encryptionNodeToNodeEnabledVal,
+		EncryptionStrictModeEnabled: encryptionStrictModeEnabledVal,
+		HubbleEnabled:               hubbleEnabledVal,
+		PolicyAuditMode:             policyAuditModeVal,
+		Tunnel:                      tunnelVal,
+		state:                       attr.ValueStateKnown,
+	}, diags
+}
+
+func NewCiliumProviderConfigValueMust(attributeTypes map[string]attr.Type, attributes map[string]attr.Value) CiliumProviderConfigValue {
+	object, diags := NewCiliumProviderConfigValue(attributeTypes, attributes)
+
+	if diags.HasError() {
+		// This could potentially be added to the diag package.
+		diagsStrings := make([]string, 0, len(diags))
+
+		for _, diagnostic := range diags {
+			diagsStrings = append(diagsStrings, fmt.Sprintf(
+				"%s | %s | %s",
+				diagnostic.Severity(),
+				diagnostic.Summary(),
+				diagnostic.Detail()))
+		}
+
+		panic("NewCiliumProviderConfigValueMust received error(s): " + strings.Join(diagsStrings, "\n"))
+	}
+
+	return object
+}
+
+func (t CiliumProviderConfigType) ValueFromTerraform(ctx context.Context, in tftypes.Value) (attr.Value, error) {
+	if in.Type() == nil {
+		return NewCiliumProviderConfigValueNull(), nil
+	}
+
+	if !in.Type().Equal(t.TerraformType(ctx)) {
+		return nil, fmt.Errorf("expected %s, got %s", t.TerraformType(ctx), in.Type())
+	}
+
+	if !in.IsKnown() {
+		return NewCiliumProviderConfigValueUnknown(), nil
+	}
+
+	if in.IsNull() {
+		return NewCiliumProviderConfigValueNull(), nil
+	}
+
+	attributes := map[string]attr.Value{}
+
+	val := map[string]tftypes.Value{}
+
+	err := in.As(&val)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for k, v := range val {
+		a, err := t.AttrTypes[k].ValueFromTerraform(ctx, v)
+
+		if err != nil {
+			return nil, err
+		}
+
+		attributes[k] = a
+	}
+
+	return NewCiliumProviderConfigValueMust(CiliumProviderConfigValue{}.AttributeTypes(ctx), attributes), nil
+}
+
+func (t CiliumProviderConfigType) ValueType(ctx context.Context) attr.Value {
+	return CiliumProviderConfigValue{}
+}
+
+var _ basetypes.ObjectValuable = CiliumProviderConfigValue{}
+
+type CiliumProviderConfigValue struct {
+	Debug                       basetypes.BoolValue   `tfsdk:"debug"`
+	EncryptionEnabled           basetypes.BoolValue   `tfsdk:"encryption_enabled"`
+	EncryptionMode              basetypes.StringValue `tfsdk:"encryption_mode"`
+	EncryptionNodeToNodeEnabled basetypes.BoolValue   `tfsdk:"encryption_node_to_node_enabled"`
+	EncryptionStrictModeEnabled basetypes.BoolValue   `tfsdk:"encryption_strict_mode_enabled"`
+	HubbleEnabled               basetypes.BoolValue   `tfsdk:"hubble_enabled"`
+	PolicyAuditMode             basetypes.BoolValue   `tfsdk:"policy_audit_mode"`
+	Tunnel                      basetypes.StringValue `tfsdk:"tunnel"`
+	state                       attr.ValueState
+}
+
+func (v CiliumProviderConfigValue) ToTerraformValue(ctx context.Context) (tftypes.Value, error) {
+	attrTypes := make(map[string]tftypes.Type, 8)
+
+	var val tftypes.Value
+	var err error
+
+	attrTypes["debug"] = basetypes.BoolType{}.TerraformType(ctx)
+	attrTypes["encryption_enabled"] = basetypes.BoolType{}.TerraformType(ctx)
+	attrTypes["encryption_mode"] = basetypes.StringType{}.TerraformType(ctx)
+	attrTypes["encryption_node_to_node_enabled"] = basetypes.BoolType{}.TerraformType(ctx)
+	attrTypes["encryption_strict_mode_enabled"] = basetypes.BoolType{}.TerraformType(ctx)
+	attrTypes["hubble_enabled"] = basetypes.BoolType{}.TerraformType(ctx)
+	attrTypes["policy_audit_mode"] = basetypes.BoolType{}.TerraformType(ctx)
+	attrTypes["tunnel"] = basetypes.StringType{}.TerraformType(ctx)
+
+	objectType := tftypes.Object{AttributeTypes: attrTypes}
+
+	switch v.state {
+	case attr.ValueStateKnown:
+		vals := make(map[string]tftypes.Value, 8)
+
+		val, err = v.Debug.ToTerraformValue(ctx)
+
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["debug"] = val
+
+		val, err = v.EncryptionEnabled.ToTerraformValue(ctx)
+
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["encryption_enabled"] = val
+
+		val, err = v.EncryptionMode.ToTerraformValue(ctx)
+
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["encryption_mode"] = val
+
+		val, err = v.EncryptionNodeToNodeEnabled.ToTerraformValue(ctx)
+
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["encryption_node_to_node_enabled"] = val
+
+		val, err = v.EncryptionStrictModeEnabled.ToTerraformValue(ctx)
+
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["encryption_strict_mode_enabled"] = val
+
+		val, err = v.HubbleEnabled.ToTerraformValue(ctx)
+
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["hubble_enabled"] = val
+
+		val, err = v.PolicyAuditMode.ToTerraformValue(ctx)
+
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["policy_audit_mode"] = val
+
+		val, err = v.Tunnel.ToTerraformValue(ctx)
+
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["tunnel"] = val
+
+		if err := tftypes.ValidateValue(objectType, vals); err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		return tftypes.NewValue(objectType, vals), nil
+	case attr.ValueStateNull:
+		return tftypes.NewValue(objectType, nil), nil
+	case attr.ValueStateUnknown:
+		return tftypes.NewValue(objectType, tftypes.UnknownValue), nil
+	default:
+		panic(fmt.Sprintf("unhandled Object state in ToTerraformValue: %s", v.state))
+	}
+}
+
+func (v CiliumProviderConfigValue) IsNull() bool {
+	return v.state == attr.ValueStateNull
+}
+
+func (v CiliumProviderConfigValue) IsUnknown() bool {
+	return v.state == attr.ValueStateUnknown
+}
+
+func (v CiliumProviderConfigValue) String() string {
+	return "CiliumProviderConfigValue"
+}
+
+func (v CiliumProviderConfigValue) ToObjectValue(ctx context.Context) (basetypes.ObjectValue, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	attributeTypes := map[string]attr.Type{
+		"debug":                           basetypes.BoolType{},
+		"encryption_enabled":              basetypes.BoolType{},
+		"encryption_mode":                 basetypes.StringType{},
+		"encryption_node_to_node_enabled": basetypes.BoolType{},
+		"encryption_strict_mode_enabled":  basetypes.BoolType{},
+		"hubble_enabled":                  basetypes.BoolType{},
+		"policy_audit_mode":               basetypes.BoolType{},
+		"tunnel":                          basetypes.StringType{},
+	}
+
+	if v.IsNull() {
+		return types.ObjectNull(attributeTypes), diags
+	}
+
+	if v.IsUnknown() {
+		return types.ObjectUnknown(attributeTypes), diags
+	}
+
+	objVal, diags := types.ObjectValue(
+		attributeTypes,
+		map[string]attr.Value{
+			"debug":                           v.Debug,
+			"encryption_enabled":              v.EncryptionEnabled,
+			"encryption_mode":                 v.EncryptionMode,
+			"encryption_node_to_node_enabled": v.EncryptionNodeToNodeEnabled,
+			"encryption_strict_mode_enabled":  v.EncryptionStrictModeEnabled,
+			"hubble_enabled":                  v.HubbleEnabled,
+			"policy_audit_mode":               v.PolicyAuditMode,
+			"tunnel":                          v.Tunnel,
+		})
+
+	return objVal, diags
+}
+
+func (v CiliumProviderConfigValue) Equal(o attr.Value) bool {
+	other, ok := o.(CiliumProviderConfigValue)
+
+	if !ok {
+		return false
+	}
+
+	if v.state != other.state {
+		return false
+	}
+
+	if v.state != attr.ValueStateKnown {
+		return true
+	}
+
+	if !v.Debug.Equal(other.Debug) {
+		return false
+	}
+
+	if !v.EncryptionEnabled.Equal(other.EncryptionEnabled) {
+		return false
+	}
+
+	if !v.EncryptionMode.Equal(other.EncryptionMode) {
+		return false
+	}
+
+	if !v.EncryptionNodeToNodeEnabled.Equal(other.EncryptionNodeToNodeEnabled) {
+		return false
+	}
+
+	if !v.EncryptionStrictModeEnabled.Equal(other.EncryptionStrictModeEnabled) {
+		return false
+	}
+
+	if !v.HubbleEnabled.Equal(other.HubbleEnabled) {
+		return false
+	}
+
+	if !v.PolicyAuditMode.Equal(other.PolicyAuditMode) {
+		return false
+	}
+
+	if !v.Tunnel.Equal(other.Tunnel) {
+		return false
+	}
+
+	return true
+}
+
+func (v CiliumProviderConfigValue) Type(ctx context.Context) attr.Type {
+	return CiliumProviderConfigType{
+		basetypes.ObjectType{
+			AttrTypes: v.AttributeTypes(ctx),
+		},
+	}
+}
+
+func (v CiliumProviderConfigValue) AttributeTypes(ctx context.Context) map[string]attr.Type {
+	return map[string]attr.Type{
+		"debug":                           basetypes.BoolType{},
+		"encryption_enabled":              basetypes.BoolType{},
+		"encryption_mode":                 basetypes.StringType{},
+		"encryption_node_to_node_enabled": basetypes.BoolType{},
+		"encryption_strict_mode_enabled":  basetypes.BoolType{},
+		"hubble_enabled":                  basetypes.BoolType{},
+		"policy_audit_mode":               basetypes.BoolType{},
+		"tunnel":                          basetypes.StringType{},
 	}
 }
 

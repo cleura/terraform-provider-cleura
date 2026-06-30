@@ -10,6 +10,16 @@ resource "cleura_gardener_shoot" "example" {
   # enabled — doing so forces the cluster to be recreated.
   enable_ha_control_plane = true
 
+  # Cluster networking. `type` is immutable (changing it recreates the cluster);
+  # `cilium_provider_config` only applies when type = "cilium".
+  networking = {
+    type = "cilium"
+    cilium_provider_config = {
+      hubble_enabled = true
+      tunnel         = "geneve"
+    }
+  }
+
   # Automatic maintenance window (times are UTC, cron-style).
   maintenance = {
     auto_update = {
