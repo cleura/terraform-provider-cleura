@@ -205,6 +205,58 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 	}
 	data.Maintenance = maintenanceVal
 
+	// Networking is always present in the read response. cilium_provider_config is
+	// nil when the networking type is not cilium -> map it to a null object.
+	var ciliumObj basetypes.ObjectValue
+	if shootCluster.Networking.CiliumProviderConfig != nil {
+		c := shootCluster.Networking.CiliumProviderConfig
+		encMode := basetypes.NewStringNull()
+		if c.EncryptionMode != nil {
+			encMode = basetypes.NewStringValue(string(*c.EncryptionMode))
+		}
+		nodeToNode := basetypes.NewBoolNull()
+		if c.EncryptionNodeToNodeEnabled != nil {
+			nodeToNode = basetypes.NewBoolValue(*c.EncryptionNodeToNodeEnabled)
+		}
+		strictMode := basetypes.NewBoolNull()
+		if c.EncryptionStrictModeEnabled != nil {
+			strictMode = basetypes.NewBoolValue(*c.EncryptionStrictModeEnabled)
+		}
+		ciliumObj, diags = types.ObjectValue(
+			resource_gardener_shoot.CiliumProviderConfigValue{}.AttributeTypes(ctx),
+			map[string]attr.Value{
+				"debug":                           basetypes.NewBoolValue(c.Debug),
+				"encryption_enabled":              basetypes.NewBoolValue(c.EncryptionEnabled),
+				"encryption_mode":                 encMode,
+				"encryption_node_to_node_enabled": nodeToNode,
+				"encryption_strict_mode_enabled":  strictMode,
+				"hubble_enabled":                  basetypes.NewBoolValue(c.HubbleEnabled),
+				"policy_audit_mode":               basetypes.NewBoolValue(c.PolicyAuditMode),
+				"tunnel":                          basetypes.NewStringValue(string(c.Tunnel)),
+			},
+		)
+		diag.Append(diags...)
+		if diag.HasError() {
+			return
+		}
+	} else {
+		ciliumObj = basetypes.NewObjectNull(resource_gardener_shoot.CiliumProviderConfigValue{}.AttributeTypes(ctx))
+	}
+
+	networkingVal, diags := resource_gardener_shoot.NewNetworkingValue(
+		resource_gardener_shoot.NetworkingValue{}.AttributeTypes(ctx),
+		map[string]attr.Value{
+			"cilium_provider_config": ciliumObj,
+			"nodes":                  basetypes.NewStringValue(shootCluster.Networking.Nodes),
+			"type":                   basetypes.NewStringValue(string(shootCluster.Networking.Type)),
+		},
+	)
+	diag.Append(diags...)
+	if diag.HasError() {
+		return
+	}
+	data.Networking = networkingVal
+
 	// Build workers from API response (data may be empty during import).
 	//
 	// The API returns each worker's label/annotation/taint maps in a normalized

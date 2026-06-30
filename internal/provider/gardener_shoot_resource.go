@@ -146,6 +146,43 @@ func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateR
 		maintenancePtr = m
 	}
 
+	// Networking (optional). `type` is settable only on create (immutable
+	// thereafter); `cilium_provider_config` is settable on create and edit.
+	var networkingPtr *api.GardenerCreateShootNetworking
+	if !data.Networking.IsNull() && !data.Networking.IsUnknown() {
+		n := &api.GardenerCreateShootNetworking{}
+		if !data.Networking.NetworkingType.IsNull() && !data.Networking.NetworkingType.IsUnknown() {
+			t := api.GardenerShootNetworkingType(data.Networking.NetworkingType.ValueString())
+			n.Type = &t
+		}
+		if !data.Networking.CiliumProviderConfig.IsNull() && !data.Networking.CiliumProviderConfig.IsUnknown() {
+			cpcValuable, d := resource_gardener_shoot.CiliumProviderConfigType{}.ValueFromObject(ctx, data.Networking.CiliumProviderConfig)
+			resp.Diagnostics.Append(d...)
+			if resp.Diagnostics.HasError() {
+				return
+			}
+			cpc := cpcValuable.(resource_gardener_shoot.CiliumProviderConfigValue)
+			cilium := &api.GardenerCreateShootCiliumProviderConfig{
+				Debug:                       cpc.Debug.ValueBoolPointer(),
+				EncryptionEnabled:           cpc.EncryptionEnabled.ValueBoolPointer(),
+				EncryptionNodeToNodeEnabled: cpc.EncryptionNodeToNodeEnabled.ValueBoolPointer(),
+				EncryptionStrictModeEnabled: cpc.EncryptionStrictModeEnabled.ValueBoolPointer(),
+				HubbleEnabled:               cpc.HubbleEnabled.ValueBoolPointer(),
+				PolicyAuditMode:             cpc.PolicyAuditMode.ValueBoolPointer(),
+			}
+			if !cpc.EncryptionMode.IsNull() && !cpc.EncryptionMode.IsUnknown() {
+				em := api.GardenerShootEncryptionMode(cpc.EncryptionMode.ValueString())
+				cilium.EncryptionMode = &em
+			}
+			if !cpc.Tunnel.IsNull() && !cpc.Tunnel.IsUnknown() {
+				tn := api.GardenerShootTunnel(cpc.Tunnel.ValueString())
+				cilium.Tunnel = &tn
+			}
+			n.CiliumProviderConfig = cilium
+		}
+		networkingPtr = n
+	}
+
 	reqBody := api.GardenerCreateShootShoot{
 		AllowedCidrs:         &allowedCidrs,
 		Name:                 data.Name.ValueString(),
@@ -163,6 +200,7 @@ func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateR
 		},
 		HibernationSchedules: hibernationSchedulesPtr,
 		Maintenance:          maintenancePtr,
+		Networking:           networkingPtr,
 	}
 	response, err := r.config.Client.GardenerCreateShoot(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, reqBody)
 	if err != nil {
@@ -339,12 +377,43 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		enableHaControlPlane = data.EnableHaControlPlane.ValueBoolPointer()
 	}
 
+	// Networking: only cilium_provider_config is editable (type is immutable and
+	// handled via RequiresReplace in ModifyPlan). Omit when unset.
+	var networkingPtr *api.GardenerEditShootNetworking
+	if !data.Networking.IsNull() && !data.Networking.IsUnknown() &&
+		!data.Networking.CiliumProviderConfig.IsNull() && !data.Networking.CiliumProviderConfig.IsUnknown() {
+		cpcValuable, d := resource_gardener_shoot.CiliumProviderConfigType{}.ValueFromObject(ctx, data.Networking.CiliumProviderConfig)
+		resp.Diagnostics.Append(d...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		cpc := cpcValuable.(resource_gardener_shoot.CiliumProviderConfigValue)
+		cilium := &api.GardenerEditShootCiliumProviderConfig{
+			Debug:                       cpc.Debug.ValueBoolPointer(),
+			EncryptionEnabled:           cpc.EncryptionEnabled.ValueBoolPointer(),
+			EncryptionNodeToNodeEnabled: cpc.EncryptionNodeToNodeEnabled.ValueBoolPointer(),
+			EncryptionStrictModeEnabled: cpc.EncryptionStrictModeEnabled.ValueBoolPointer(),
+			HubbleEnabled:               cpc.HubbleEnabled.ValueBoolPointer(),
+			PolicyAuditMode:             cpc.PolicyAuditMode.ValueBoolPointer(),
+		}
+		if !cpc.EncryptionMode.IsNull() && !cpc.EncryptionMode.IsUnknown() {
+			em := api.GardenerShootEncryptionMode(cpc.EncryptionMode.ValueString())
+			cilium.EncryptionMode = &em
+		}
+		if !cpc.Tunnel.IsNull() && !cpc.Tunnel.IsUnknown() {
+			tn := api.GardenerShootTunnel(cpc.Tunnel.ValueString())
+			cilium.Tunnel = &tn
+		}
+		networkingPtr = &api.GardenerEditShootNetworking{CiliumProviderConfig: cilium}
+	}
+
 	reqBody := api.GardenerEditShootJSONRequestBody{
 		AllowedCidrs:         &allowedCidrs,
 		EnableHaControlPlane: enableHaControlPlane,
 		HibernationSchedules: hibernationSchedulesPtr,
 		Kubernetes:           data.KubernetesVersion.ValueStringPointer(),
 		Maintenance:          maintenancePtr,
+		Networking:           networkingPtr,
 	}
 
 	response, err := r.config.Client.GardenerEditShoot(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), reqBody)
@@ -644,6 +713,40 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 		} else if !state.AllowedCidrs.IsUnknown() {
 			// UPDATE: UseStateForUnknown - copy from state to avoid "known after apply"
 			plan.AllowedCidrs = state.AllowedCidrs
+		}
+	}
+
+	// Handle Networking: Optional+Computed. `nodes` is read-only and `type` is
+	// immutable on edit, so pin the computed parts from prior state to avoid
+	// "known after apply" churn, and force replacement when `type` changes.
+	if plan.Networking.IsUnknown() || plan.Networking.IsNull() {
+		if req.State.Raw.IsNull() {
+			plan.Networking = resource_gardener_shoot.NewNetworkingValueUnknown()
+		} else if !state.Networking.IsUnknown() {
+			plan.Networking = state.Networking
+		}
+	} else if !req.State.Raw.IsNull() && !state.Networking.IsUnknown() && !state.Networking.IsNull() {
+		// networking block is set on update: keep prior state for the read-only
+		// `nodes`, and for `type`/`cilium_provider_config` the user did not change.
+		pinned := state.Networking
+		if !plan.Networking.NetworkingType.IsUnknown() {
+			pinned.NetworkingType = plan.Networking.NetworkingType
+		}
+		if !plan.Networking.CiliumProviderConfig.IsUnknown() {
+			pinned.CiliumProviderConfig = plan.Networking.CiliumProviderConfig
+		}
+		plan.Networking = pinned
+
+		if !pinned.NetworkingType.IsUnknown() && !state.Networking.NetworkingType.IsUnknown() &&
+			!pinned.NetworkingType.Equal(state.Networking.NetworkingType) {
+			resp.RequiresReplace = append(resp.RequiresReplace, path.Root("networking").AtName("type"))
+			resp.Diagnostics.AddWarning(
+				"Networking type change recreates the cluster",
+				fmt.Sprintf("Changing networking.type (%s → %s) cannot be applied in place: Terraform "+
+					"will destroy and recreate the entire Gardener cluster, including all worker nodes "+
+					"and workloads. Make sure this downtime and data loss are acceptable before applying.",
+					state.Networking.NetworkingType.ValueString(), pinned.NetworkingType.ValueString()),
+			)
 		}
 	}
 
