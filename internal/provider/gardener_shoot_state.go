@@ -81,7 +81,11 @@ func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootC
 		}
 		data.AllowedCidrs = allowedCidrsVal
 	} else {
-		data.AllowedCidrs = basetypes.NewListNull(basetypes.StringType{})
+		// Empty/absent allow-list: return an empty (non-null) list so an explicit
+		// `allowed_cidrs = []` round-trips instead of tripping "inconsistent result
+		// after apply" (bug #7). Optional+Computed + ModifyPlan keep it stable when
+		// the attribute is omitted entirely.
+		data.AllowedCidrs = basetypes.NewListValueMust(basetypes.StringType{}, nil)
 	}
 
 	// EnableHaControlPlane (ControlPlane with HighAvailability indicates HA is enabled)
