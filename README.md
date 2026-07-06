@@ -1,11 +1,26 @@
 # Terraform Provider Cleura
 
-> [!CAUTION]
-> This provider is in early stages of development and has very limited amount of testing. It is not advised to use it in a production environment!
+> [!WARNING]
+> This provider is in early (`0.x`) development. The Gardener cluster surface has been tested
+> against live Cleura environments, but coverage is still limited, the API may change between
+> minor versions, and production use is not yet recommended.
 
-A Terraform/OpenTofu provider for managing resources on Cleura Cloud regions. It supports both Public and Compliant cloud.
+A Terraform/OpenTofu provider for managing resources on Cleura Cloud, published on the
+[Terraform Registry](https://registry.terraform.io/providers/cleura/cleura). It works against
+both the Public and Compliant clouds.
 
-The provider datamodels and scaffolding is being generated from our OpenAPI spec using the [Terraform Provider Code Generation](https://github.com/hashicorp/terraform-plugin-codegen-openapi) tool, and the client is generated using [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen). Since oapi-codegen currently does not support OAS 3.1, the spec is downgraded to OAS 3.0 using the [`openapi_downgrade`](https://pypi.org/project/openapi-downgrade/) Python tool (see [Generate](#generate)).
+**Currently supported:**
+
+- `cleura_gardener_shoot` — Gardener-based Kubernetes clusters (worker groups, maintenance
+  windows, hibernation schedules, allowed login CIDRs, and Calico/Cilium networking)
+- `cleura_gardener_shoot_kubeconfig` — short-lived admin kubeconfigs
+- `cleura_project` (data source) — look up Cleura projects
+
+The provider's datamodels and scaffolding are generated from the Cleura OpenAPI spec using the
+[Terraform Provider Code Generation](https://github.com/hashicorp/terraform-plugin-codegen-openapi)
+tool, and the client is generated with [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen).
+Since oapi-codegen does not yet support OAS 3.1, the spec is downgraded to OAS 3.0 using the
+[`openapi_downgrade`](https://pypi.org/project/openapi-downgrade/) Python tool (see [Generate](#generate)).
 
 ## Usage
 
@@ -63,17 +78,59 @@ resource "cleura_gardener_shoot_kubeconfig" "example" {
 }
 ```
 
-Provide credentials via environment variables (recommended) instead of in
-configuration:
+The full schema for every resource and data source — including optional
+worker labels/annotations/taints, hibernation schedules, and maintenance
+windows — is documented under [`docs/`](./docs) and on the Terraform Registry.
+
+## Authentication
+
+The provider authenticates to the Cleura API with a **username** and an **API token** (sent as
+the `X-AUTH-LOGIN` and `X-AUTH-TOKEN` headers). You supply a token you have already created — the
+provider does not create one for you. See the
+[Cleura Cloud API documentation](https://rest.cleura.cloud/apidoc) for the full reference.
+
+### Create a token
+
+The repository includes a helper script that walks you through it — it handles cloud selection
+(public/compliant) and two-factor authentication. It requires `curl` and `jq`:
+
+```sh
+./scripts/cleura_token.sh
+```
+
+It prompts for your username, password, and cloud, then returns a token.
+
+Alternatively, call the API directly. This simple form works for accounts **without** 2FA; for the
+2FA flow use the script above or see the [API docs](https://rest.cleura.cloud/apidoc):
+
+```sh
+curl -H "Content-Type: application/json" -X POST \
+  -d '{"auth": {"login": "your-username", "password": "your-password"}}' \
+  https://rest.cleura.cloud/auth/v1/tokens
+# => { "result": "login_ok", "token": "<your-token>" }
+```
+
+Your login is the provider `username`; the returned `token` is the provider `token`. A token is
+valid for the remainder of the session and can be reused across requests until it expires.
+
+### Configure the provider
+
+Supply the credentials via environment variables (recommended — keeps secrets out of your
+configuration and state) or provider arguments:
+
+| Credential      | Provider argument | Environment variable  |
+| --------------- | ----------------- | --------------------- |
+| Cleura username | `username`        | `CLEURA_API_USERNAME` |
+| API token       | `token`           | `CLEURA_API_TOKEN`    |
 
 ```sh
 export CLEURA_API_USERNAME="your-username"
 export CLEURA_API_TOKEN="your-token"
 ```
 
-The full schema for every resource and data source — including optional
-worker labels/annotations/taints, hibernation schedules, and maintenance
-windows — is documented under [`docs/`](./docs) and on the Terraform Registry.
+> [!WARNING]
+> The token grants API access to your Cleura account — treat it like a password. Don't commit it
+> to version control. `token` is marked sensitive in state, but environment variables are safer.
 
 ## Build
 
@@ -87,7 +144,9 @@ To build and run the provider locally, you will need a `~/.terraformrc` with dev
 provider_installation {
 
   dev_overrides {
-      "registry.terraform.io/cleura/cleura" = "<path to you $GOPATH>"
+      # Absolute path to your Go bin directory (run `go env GOPATH` and append /bin).
+      # Terraform does not expand $GOPATH, ~, or environment variables here.
+      "registry.terraform.io/cleura/cleura" = "/Users/you/go/bin"
   }
 
   # For all other providers, install them directly from their origin provider
@@ -103,11 +162,11 @@ Within the repository root, run
 go install .
 ```
 
-Now you can run Terraform with the locally installed provider as normal. Don't forget to remove the `dev_overrides` if you want to install the proivder from the registry
+Now you can run Terraform with the locally installed provider as normal. Don't forget to remove the `dev_overrides` if you want to install the provider from the registry.
 
 ### Running locally with VSCode debugger
 
-To run the provider in debug mode withing VSCode, create a new file `.vscode/launch.json` in the root of the repository, fill in the `CLEURA_API_USERNAME` and `CLEURA_API_TOKEN`. This is because the terraform provider WILL NOT source environment variables set in the current shell session:
+To run the provider in debug mode within VSCode, create a new file `.vscode/launch.json` in the root of the repository, fill in the `CLEURA_API_USERNAME` and `CLEURA_API_TOKEN`. This is because the terraform provider WILL NOT source environment variables set in the current shell session:
 
 ```json
 {
@@ -149,8 +208,9 @@ After updating the code, you will need to restart the debug session, which also 
 
 To generate all datamodels from the API, ensure you have the following installed on your machine:
 
-* OpenAPI downgrader - `pip install openapi_downgrade`
-* Terraform Provider Code Generation - `go install github.com/hashicorp/terraform-plugin-codegen-openapi/cmd/tfplugingen-openapi@latest`
+* OpenAPI downgrader - `pip install openapi-downgrade`
+* Terraform Provider Code Generation, OpenAPI - `go install github.com/hashicorp/terraform-plugin-codegen-openapi/cmd/tfplugingen-openapi@latest`
+* Terraform Provider Code Generation, Framework - `go install github.com/hashicorp/terraform-plugin-codegen-framework/cmd/tfplugingen-framework@latest`
 * oapi-codegen - `go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest`
 
 > [!NOTE]
@@ -162,7 +222,16 @@ Generate the provider and client using the shell script:
 ./generate.sh
 ```
 
-If any changes were made to the OpenAPI spec, these changes has now been applied.
+If any changes were made to the OpenAPI spec, these changes have now been applied.
+
+Documentation under `docs/` is generated separately (it is not part of `generate.sh`):
+
+```sh
+make docs
+```
+
+The provider index page is rendered from the template in `templates/`; resource and data-source
+pages are generated from the schema.
 
 ## Test
 
