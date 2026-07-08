@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -26,14 +29,36 @@ type cliCredentialsEnvelope struct {
 
 // errCLINoCredentials means the CLI tier has nothing to offer (no binary on
 // PATH, or it reported "no usable credentials" via its contractual exit code
-// 2). Callers fall through to the regular missing-credential errors.
+// 2). It may be wrapped with the CLI's own reason. Callers fall through to
+// the regular missing-credential errors.
 var errCLINoCredentials = errors.New("no credentials available from the cleura CLI")
+
+// errCLITooOld means the installed CLI predates the get-credentials contract
+// (released v0.1.0 errors with "unknown command"). Worth one clear warning,
+// not an opaque malfunction on every plan.
+var errCLITooOld = errors.New("the installed cleura CLI does not support 'config get-credentials'; upgrade to cleura v0.2.0 or newer, or set credentials explicitly")
 
 const cliTimeout = 5 * time.Second
 
-// cliCredentials asks the cleura CLI for its effective credentials, the last
-// tier of the provider's credential chain. Any error other than
-// errCLINoCredentials is a malfunction worth a warning diagnostic.
+// credentialEnvVars are consumed by the provider itself as its second
+// credential tier and must not leak into the CLI subprocess: tier 3 answers
+// purely from CLI state, or a stale CLEURA_API_TOKEN in the environment would
+// half-override an explicitly requested profile and no mismatch warning could
+// ever fire. CLEURA_PROFILE and CLEURA_CONFIG stay — they select which CLI
+// state to read.
+var credentialEnvVars = []string{
+	"CLEURA_API_USERNAME",
+	"CLEURA_API_TOKEN",
+	"CLEURA_API_PASSWORD",
+	"CLEURA_API_URL",
+	"CLEURA_CLOUD",
+	"CLEURA_REGION",
+	"CLEURA_PROJECT_ID",
+}
+
+// cliCredentials asks the cleura CLI for its stored credentials, the last
+// tier of the provider's credential chain. Errors other than
+// errCLINoCredentials and errCLITooOld are malfunctions worth a warning.
 func cliCredentials(ctx context.Context, profile string) (*cliCredentialsEnvelope, error) {
 	path, err := exec.LookPath("cleura")
 	if err != nil {
@@ -47,11 +72,28 @@ func cliCredentials(ctx context.Context, profile string) (*cliCredentialsEnvelop
 	if profile != "" {
 		args = append(args, "--profile", profile)
 	}
-	out, err := exec.CommandContext(ctx, path, args...).Output()
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Env = strippedEnv()
+	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 2 {
-			return nil, errCLINoCredentials
+		if errors.As(err, &exitErr) {
+			stderr := strings.TrimSpace(string(exitErr.Stderr))
+			switch {
+			case exitErr.ExitCode() == 2:
+				// Contractual "nothing stored"; stdout carries the reason.
+				if reason := parseCLIErrorReason(out); reason != "" {
+					return nil, fmt.Errorf("%w: %s", errCLINoCredentials, reason)
+				}
+				return nil, errCLINoCredentials
+			case strings.Contains(stderr, "unknown command"):
+				return nil, errCLITooOld
+			default:
+				if len(stderr) > 300 {
+					stderr = stderr[:300] + "…"
+				}
+				return nil, fmt.Errorf("running %s config get-credentials: %w: %s", path, err, stderr)
+			}
 		}
 		return nil, fmt.Errorf("running %s config get-credentials: %w", path, err)
 	}
@@ -67,6 +109,32 @@ func cliCredentials(ctx context.Context, profile string) (*cliCredentialsEnvelop
 		return nil, errCLINoCredentials
 	}
 	return &envelope, nil
+}
+
+// strippedEnv is the process environment minus the provider's own credential
+// tier variables.
+func strippedEnv() []string {
+	env := os.Environ()
+	kept := env[:0:0]
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if !slices.Contains(credentialEnvVars, name) {
+			kept = append(kept, kv)
+		}
+	}
+	return kept
+}
+
+// parseCLIErrorReason extracts the message from the CLI's exit-2 JSON
+// {"error": ...} payload; empty when it cannot be parsed.
+func parseCLIErrorReason(out []byte) string {
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(out, &payload) != nil {
+		return ""
+	}
+	return payload.Error
 }
 
 // storedAt parses the envelope's token timestamp; ok is false when the CLI

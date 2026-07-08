@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -135,6 +136,18 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 			)
 		}
 	}
+	// The CLI-tier attributes must be known too: an unknown profile would
+	// silently query the CLI's current profile and an unknown use_cli would
+	// silently disable the tier — plan and apply would then use different
+	// credential sources.
+	if config.Profile.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("profile"), fmtUnknownTitle("profile"),
+			"The provider cannot be configured while profile is unknown. Set a static value in the provider configuration.")
+	}
+	if config.UseCli.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("use_cli"), fmtUnknownTitle("use_cli"),
+			"The provider cannot be configured while use_cli is unknown. Set a static value in the provider configuration.")
+	}
 
 	if resp.Diagnostics.HasError() {
 		return
@@ -154,16 +167,29 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	// from the CLI profile: topology must not depend on operator state
 	// (the lesson azurerm 4.0 learned from inherited subscriptions).
 	useCli := config.UseCli.IsNull() || config.UseCli.ValueBool()
+	var creds *cliCredentialsEnvelope
+	tokenFromCLI := false
+	cliNote := ""
 	if useCli && (username == "" || token == "") {
-		explicitCloud := cloud
-		creds, err := cliCredentials(ctx, config.Profile.ValueString())
+		explicitCloud, explicitUsername := cloud, username
+		var err error
+		creds, err = cliCredentials(ctx, config.Profile.ValueString())
 		switch {
 		case err == nil:
+			// The API authenticates username+token as a pair; assembling it
+			// across tiers is a coherence hazard worth flagging.
+			if explicitUsername != "" && token == "" && creds.Username != explicitUsername {
+				resp.Diagnostics.AddWarning(
+					"Mixed credential sources",
+					fmt.Sprintf("username %q comes from the provider configuration or environment, but the token comes from cleura CLI profile %q, which belongs to %q. The pair may not authenticate; set both explicitly, or neither.", explicitUsername, creds.Profile, creds.Username),
+				)
+			}
 			if username == "" {
 				username = creds.Username
 			}
 			if token == "" {
 				token = creds.Token
+				tokenFromCLI = true
 			}
 			if cloud == "" {
 				cloud = creds.Cloud
@@ -187,11 +213,23 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 					fmt.Sprintf("The token from the cleura CLI (profile %q) was stored %s ago and Cleura tokens are short-lived. If authentication fails, run 'cleura login'.", creds.Profile, roughAge(time.Since(at))),
 				)
 			}
+		case errors.Is(err, errCLITooOld):
+			resp.Diagnostics.AddWarning("The cleura CLI is too old for provider integration", err.Error())
 		case errors.Is(err, errCLINoCredentials):
-			// Nothing stored: fall through to the standard errors below.
+			// Nothing stored: fall through to the standard errors below,
+			// carrying the CLI's own reason (it names the affected profile).
+			cliNote = strings.TrimPrefix(strings.TrimPrefix(err.Error(), errCLINoCredentials.Error()), ": ")
 		default:
 			resp.Diagnostics.AddWarning("Could not read credentials from the cleura CLI", err.Error())
 		}
+	}
+
+	loginHint := "run 'cleura login'"
+	if p := config.Profile.ValueString(); p != "" {
+		loginHint = fmt.Sprintf("run 'cleura login --profile %s'", p)
+	}
+	if cliNote != "" {
+		loginHint += " (cleura CLI: " + cliNote + ")"
 	}
 
 	if cloud == "" {
@@ -201,10 +239,10 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		resp.Diagnostics.AddAttributeError(path.Root("region"), "Missing Cleura region", "Set region in the provider configuration or use the CLEURA_REGION environment variable. Unlike credentials, region is deliberately not read from the cleura CLI profile: where infrastructure lives should be stated in the configuration.")
 	}
 	if username == "" {
-		resp.Diagnostics.AddAttributeError(path.Root("username"), "Missing Cleura API username", "Set username in the provider configuration or use the CLEURA_API_USERNAME environment variable, or run 'cleura login' (the provider falls back to cleura CLI credentials).")
+		resp.Diagnostics.AddAttributeError(path.Root("username"), "Missing Cleura API username", "Set username in the provider configuration or use the CLEURA_API_USERNAME environment variable, or "+loginHint+" (the provider falls back to cleura CLI credentials).")
 	}
 	if token == "" {
-		resp.Diagnostics.AddAttributeError(path.Root("token"), "Missing Cleura API token", "Set token in the provider configuration or use the CLEURA_API_TOKEN environment variable, or run 'cleura login' (the provider falls back to cleura CLI credentials).")
+		resp.Diagnostics.AddAttributeError(path.Root("token"), "Missing Cleura API token", "Set token in the provider configuration or use the CLEURA_API_TOKEN environment variable, or "+loginHint+" (the provider falls back to cleura CLI credentials).")
 	}
 
 	if url == "" && cloud != "" { // with cloud missing, a url error would only repeat it
@@ -214,6 +252,16 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		} else {
 			url = defaultURL
 		}
+	}
+
+	// A CLI token sent to a different endpoint than it was created against
+	// fails opaquely; make the divergence visible even when the cloud names
+	// happen to match (e.g. an alternate deployment of the same cloud).
+	if tokenFromCLI && creds.Endpoint != "" && url != "" && url != creds.Endpoint {
+		resp.Diagnostics.AddWarning(
+			"Cleura CLI credentials may not match the API endpoint",
+			fmt.Sprintf("The token from cleura CLI profile %q was created against %s, but the provider targets %s. The token may not be valid there.", creds.Profile, creds.Endpoint, url),
+		)
 	}
 
 	if resp.Diagnostics.HasError() {
@@ -253,9 +301,13 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	tflog.Info(ctx, "Configured Cleura client", map[string]any{"success": true})
 }
 
+// stringOrEnv resolves an attribute with its environment fallback. An
+// explicitly empty string falls through to the environment: patterns like
+// `token = var.cleura_token` with a default of "" must not shadow
+// CLEURA_API_TOKEN (that would invert the documented precedence).
 func stringOrEnv(config types.String, envKey string) string {
-	if !config.IsNull() {
-		return config.ValueString()
+	if v := config.ValueString(); !config.IsNull() && v != "" {
+		return v
 	}
 	return os.Getenv(envKey)
 }

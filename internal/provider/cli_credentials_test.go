@@ -48,9 +48,56 @@ func TestCLICredentialsSuccess(t *testing.T) {
 }
 
 func TestCLICredentialsExitTwoMeansNone(t *testing.T) {
-	fakeCLI(t, `echo '{"error": "no credentials"}'; exit 2`)
-	if _, err := cliCredentials(context.Background(), ""); !errors.Is(err, errCLINoCredentials) {
+	fakeCLI(t, `echo '{"error": "no credentials: profile \"compliant\" has no token"}'; exit 2`)
+	_, err := cliCredentials(context.Background(), "")
+	if !errors.Is(err, errCLINoCredentials) {
 		t.Fatalf("exit 2 must map to errCLINoCredentials, got %v", err)
+	}
+	// The CLI's reason (it names the affected profile) must survive.
+	if !strings.Contains(err.Error(), `profile "compliant"`) {
+		t.Errorf("exit-2 reason should be carried in the error, got %v", err)
+	}
+}
+
+func TestCLICredentialsStripsCredentialEnv(t *testing.T) {
+	// The provider consumed CLEURA_* itself as tier 2; the subprocess must
+	// answer purely from CLI state. CLEURA_PROFILE stays (selects state).
+	dir := fakeCLI(t, `echo "$CLEURA_API_TOKEN|$CLEURA_CLOUD|$CLEURA_PROFILE" > "$0.env"
+echo '{"version":1,"profile":"p","cloud":"public","endpoint":"e","username":"u","token":"t"}'`)
+	t.Setenv("CLEURA_API_TOKEN", "leaky-token")
+	t.Setenv("CLEURA_CLOUD", "leaky-cloud")
+	t.Setenv("CLEURA_PROFILE", "kept-profile")
+
+	if _, err := cliCredentials(context.Background(), ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	seen, err := os.ReadFile(filepath.Join(dir, "cleura.env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(seen)); got != "||kept-profile" {
+		t.Errorf("subprocess env = %q, want credential vars stripped and CLEURA_PROFILE kept", got)
+	}
+}
+
+func TestCLICredentialsTooOld(t *testing.T) {
+	// Released v0.1.0 has no get-credentials: cobra prints an unknown-command
+	// error and exits 1. That must map to the friendly upgrade warning, not
+	// an opaque malfunction on every plan.
+	fakeCLI(t, `echo 'Error: unknown command "get-credentials" for "cleura config"' >&2; exit 1`)
+	if _, err := cliCredentials(context.Background(), ""); !errors.Is(err, errCLITooOld) {
+		t.Fatalf("unknown command must map to errCLITooOld, got %v", err)
+	}
+}
+
+func TestCLICredentialsMalfunctionCarriesStderr(t *testing.T) {
+	fakeCLI(t, `echo 'Error: parsing config /home/x/config.yaml: yaml: bad' >&2; exit 1`)
+	_, err := cliCredentials(context.Background(), "")
+	if err == nil || errors.Is(err, errCLINoCredentials) || errors.Is(err, errCLITooOld) {
+		t.Fatalf("want malfunction, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "parsing config") {
+		t.Errorf("stderr detail should be surfaced, got %v", err)
 	}
 }
 

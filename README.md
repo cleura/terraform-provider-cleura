@@ -89,6 +89,12 @@ Only **credentials** come from the CLI. `region` and `project_id` must always
 be stated in the provider configuration (or their environment variables):
 where infrastructure lives should never depend on the operator's CLI profile.
 
+Credentials are read once, when the provider is configured: a token expiring
+during a long apply fails at the affected resource call — re-run after
+`cleura login`. The CLI is executed with the `CLEURA_*` credential variables
+stripped from its environment, so the CLI tier reflects the CLI's stored
+state only; environment credentials participate as their own (higher) tier.
+
 The full schema for every resource and data source — including optional
 worker labels/annotations/taints, hibernation schedules, and maintenance
 windows — is documented under [`docs/`](./docs) and on the Terraform Registry.

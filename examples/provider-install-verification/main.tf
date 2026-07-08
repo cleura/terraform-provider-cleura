@@ -7,8 +7,8 @@ terraform {
 }
 
 provider "cleura" {
-#  region = "Sto2"
-#  project_id = "8a22c50af68e45c6b4dd7722cce8f93a"
+  region = "Sto2"
+  project_id = "8a22c50af68e45c6b4dd7722cce8f93a"
 }
 
 # Reference example: every optional cleura_gardener_shoot attribute illustrated.
