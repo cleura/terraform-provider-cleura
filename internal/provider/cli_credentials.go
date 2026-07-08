@@ -27,11 +27,16 @@ type cliCredentialsEnvelope struct {
 	TokenStoredAt string `json:"token_stored_at"`
 }
 
-// errCLINoCredentials means the CLI tier has nothing to offer (no binary on
-// PATH, or it reported "no usable credentials" via its contractual exit code
-// 2). It may be wrapped with the CLI's own reason. Callers fall through to
-// the regular missing-credential errors.
+// errCLINoCredentials means the CLI tier has nothing to offer (the CLI
+// reported "no usable credentials" via its contractual exit code 2). It may
+// be wrapped with the CLI's own reason. Callers fall through to the regular
+// missing-credential errors.
 var errCLINoCredentials = errors.New("no credentials available from the cleura CLI")
+
+// errCLINotFound is the special case of errCLINoCredentials where the CLI is
+// not installed at all — the fall-through guidance should say "install",
+// not "log in". errors.Is matches both sentinels.
+var errCLINotFound = fmt.Errorf("%w: the cleura CLI is not installed (not found in PATH)", errCLINoCredentials)
 
 // errCLITooOld means the installed CLI predates the get-credentials contract
 // (released v0.1.0 errors with "unknown command"). Worth one clear warning,
@@ -62,7 +67,7 @@ var credentialEnvVars = []string{
 func cliCredentials(ctx context.Context, profile string) (*cliCredentialsEnvelope, error) {
 	path, err := exec.LookPath("cleura")
 	if err != nil {
-		return nil, errCLINoCredentials
+		return nil, errCLINotFound
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, cliTimeout)

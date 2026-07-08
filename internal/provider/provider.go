@@ -169,6 +169,7 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	useCli := config.UseCli.IsNull() || config.UseCli.ValueBool()
 	var creds *cliCredentialsEnvelope
 	tokenFromCLI := false
+	cliMissing := false
 	cliNote := ""
 	if useCli && (username == "" || token == "") {
 		explicitCloud, explicitUsername := cloud, username
@@ -215,21 +216,41 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 			}
 		case errors.Is(err, errCLITooOld):
 			resp.Diagnostics.AddWarning("The cleura CLI is too old for provider integration", err.Error())
+		case errors.Is(err, errCLINotFound):
+			// A fallback that is not installed is a non-event for CI runs;
+			// leave a trace for TF_LOG=DEBUG and adjust the guidance below.
+			cliMissing = true
+			tflog.Debug(ctx, "cleura CLI not found in PATH; skipping the CLI credential tier")
 		case errors.Is(err, errCLINoCredentials):
 			// Nothing stored: fall through to the standard errors below,
 			// carrying the CLI's own reason (it names the affected profile).
 			cliNote = strings.TrimPrefix(strings.TrimPrefix(err.Error(), errCLINoCredentials.Error()), ": ")
+			// Our own hint already says how to log in; keep only the fact.
+			cliNote = strings.TrimSuffix(cliNote, "; run 'cleura login'")
+			tflog.Debug(ctx, "cleura CLI has no stored credentials", map[string]any{"reason": cliNote})
 		default:
 			resp.Diagnostics.AddWarning("Could not read credentials from the cleura CLI", err.Error())
 		}
 	}
 
-	loginHint := "run 'cleura login'"
-	if p := config.Profile.ValueString(); p != "" {
-		loginHint = fmt.Sprintf("run 'cleura login --profile %s'", p)
-	}
-	if cliNote != "" {
-		loginHint += " (cleura CLI: " + cliNote + ")"
+	// The credential-error guidance must match reality: mention the CLI
+	// fallback only when it is enabled, say "install" when the binary is
+	// missing, and carry the CLI's own reason when it reported one.
+	cliClause := ""
+	switch {
+	case !useCli:
+		// The user disabled the tier; do not advertise it.
+	case cliMissing:
+		cliClause = ", or install the cleura CLI and run 'cleura login' (the provider falls back to cleura CLI credentials)"
+	default:
+		loginHint := "run 'cleura login'"
+		if p := config.Profile.ValueString(); p != "" {
+			loginHint = fmt.Sprintf("run 'cleura login --profile %s'", p)
+		}
+		if cliNote != "" {
+			loginHint += " (cleura CLI: " + cliNote + ")"
+		}
+		cliClause = ", or " + loginHint + " (the provider falls back to cleura CLI credentials)"
 	}
 
 	if cloud == "" {
@@ -239,10 +260,10 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		resp.Diagnostics.AddAttributeError(path.Root("region"), "Missing Cleura region", "Set region in the provider configuration or use the CLEURA_REGION environment variable. Unlike credentials, region is deliberately not read from the cleura CLI profile: where infrastructure lives should be stated in the configuration.")
 	}
 	if username == "" {
-		resp.Diagnostics.AddAttributeError(path.Root("username"), "Missing Cleura API username", "Set username in the provider configuration or use the CLEURA_API_USERNAME environment variable, or "+loginHint+" (the provider falls back to cleura CLI credentials).")
+		resp.Diagnostics.AddAttributeError(path.Root("username"), "Missing Cleura API username", "Set username in the provider configuration or use the CLEURA_API_USERNAME environment variable"+cliClause+".")
 	}
 	if token == "" {
-		resp.Diagnostics.AddAttributeError(path.Root("token"), "Missing Cleura API token", "Set token in the provider configuration or use the CLEURA_API_TOKEN environment variable, or "+loginHint+" (the provider falls back to cleura CLI credentials).")
+		resp.Diagnostics.AddAttributeError(path.Root("token"), "Missing Cleura API token", "Set token in the provider configuration or use the CLEURA_API_TOKEN environment variable"+cliClause+".")
 	}
 
 	if url == "" && cloud != "" { // with cloud missing, a url error would only repeat it

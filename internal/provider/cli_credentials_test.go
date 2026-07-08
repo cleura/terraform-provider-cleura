@@ -103,8 +103,11 @@ func TestCLICredentialsMalfunctionCarriesStderr(t *testing.T) {
 
 func TestCLICredentialsMissingBinaryMeansNone(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	if _, err := cliCredentials(context.Background(), ""); !errors.Is(err, errCLINoCredentials) {
-		t.Fatalf("missing binary must map to errCLINoCredentials, got %v", err)
+	_, err := cliCredentials(context.Background(), "")
+	// Both sentinels must match: NotFound is the install-specific case of
+	// NoCredentials, so fall-through logic and install guidance both work.
+	if !errors.Is(err, errCLINoCredentials) || !errors.Is(err, errCLINotFound) {
+		t.Fatalf("missing binary must map to errCLINotFound (wrapping errCLINoCredentials), got %v", err)
 	}
 }
 
