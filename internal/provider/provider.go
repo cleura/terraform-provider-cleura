@@ -150,8 +150,9 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	// Last credential tier: the cleura CLI ('cleura login'), like azurerm
 	// falls back to the az CLI. Explicit configuration and environment
 	// variables always win; the CLI only fills what is still missing.
-	// Region and project are deliberately not taken from the CLI —
-	// infrastructure code should state topology explicitly.
+	// Region and project_id are inherited too, but with a warning: topology
+	// then depends on the operator's CLI profile, which azurerm's history
+	// with inherited subscriptions shows is worth surfacing loudly.
 	useCli := config.UseCli.IsNull() || config.UseCli.ValueBool()
 	if useCli && (username == "" || token == "") {
 		explicitCloud := cloud
@@ -172,6 +173,20 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 				// explicitly chosen either; otherwise the cloud's own
 				// default URL applies below.
 				url = creds.Endpoint
+			}
+			if region == "" && creds.Region != "" {
+				region = creds.Region
+				resp.Diagnostics.AddWarning(
+					"Region taken from the cleura CLI",
+					fmt.Sprintf("region %q comes from cleura CLI profile %q, so plans depend on the operator's CLI configuration. Set region in the provider configuration (or CLEURA_REGION) for reproducible runs.", creds.Region, creds.Profile),
+				)
+			}
+			if projectID == "" && creds.ProjectID != "" {
+				projectID = creds.ProjectID
+				resp.Diagnostics.AddWarning(
+					"Project taken from the cleura CLI",
+					fmt.Sprintf("project_id %q comes from cleura CLI profile %q, so plans depend on the operator's CLI configuration. Set project_id in the provider configuration (or CLEURA_PROJECT_ID) for reproducible runs.", creds.ProjectID, creds.Profile),
+				)
 			}
 			tflog.Info(ctx, "Using credentials from the cleura CLI", map[string]any{"cli_profile": creds.Profile})
 			if explicitCloud != "" && creds.Cloud != "" && explicitCloud != creds.Cloud {
@@ -206,10 +221,10 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		resp.Diagnostics.AddAttributeError(path.Root("token"), "Missing Cleura API token", "Set token in the provider configuration or use the CLEURA_API_TOKEN environment variable, or run 'cleura login' (the provider falls back to cleura CLI credentials).")
 	}
 
-	if url == "" {
+	if url == "" && cloud != "" { // with cloud missing, a url error would only repeat it
 		defaultURL, err := cleura.DefaultAPIURL(cloud)
 		if err != nil {
-			resp.Diagnostics.AddAttributeError(path.Root("url"), "Missing Cleura API url", err.Error()+" Set url in the provider configuration or use the CLEURA_API_URL environment variable.")
+			resp.Diagnostics.AddAttributeError(path.Root("url"), "Missing Cleura API url", err.Error()+". Set url in the provider configuration or use the CLEURA_API_URL environment variable.")
 		} else {
 			url = defaultURL
 		}

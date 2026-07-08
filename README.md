@@ -84,8 +84,9 @@ value wins, per value:
    the `profile` attribute, or disable the fallback entirely with
    `use_cli = false`. Note that Cleura tokens are short-lived: if a plan
    fails with an authentication error, re-run `cleura login`. Region and
-   project are deliberately **not** read from the CLI — state them explicitly
-   in configuration.
+   project_id stored in the CLI profile are used as a last resort too — with
+   a warning on every plan, because topology then depends on the operator's
+   CLI configuration. Teams should state region/project_id explicitly.
 
 The full schema for every resource and data source — including optional
 worker labels/annotations/taints, hibernation schedules, and maintenance
