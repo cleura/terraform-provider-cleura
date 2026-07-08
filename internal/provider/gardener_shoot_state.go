@@ -7,8 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	api "github.com/cleura/terraform-provider-cleura/api"
-	"github.com/cleura/terraform-provider-cleura/cleura"
+	api "github.com/cleura/cleura-client-go/api"
 	"github.com/cleura/terraform-provider-cleura/internal/provider/resource_gardener_shoot"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -19,7 +18,7 @@ import (
 // fetchShoot GETs a single shoot by name. found is false when the API returns
 // HTTP 404 (the cluster was deleted out of band, e.g. via the console or kubeconfig
 // expiry), letting callers drop it from state instead of failing permanently.
-func fetchShoot(ctx context.Context, cfg *cleura.ProviderConfig, name string) (cluster *api.GardenerShootShoot, found bool, err error) {
+func fetchShoot(ctx context.Context, cfg *ProviderConfig, name string) (cluster *api.GardenerShootShoot, found bool, err error) {
 	resp, err := cfg.Client.GardenerGetShoot(ctx, cfg.Cloud, cfg.Region, cfg.ProjectID, name)
 	if err != nil {
 		return nil, false, err
@@ -42,7 +41,7 @@ func fetchShoot(ctx context.Context, cfg *cleura.ProviderConfig, name string) (c
 	return &fetched, true, nil
 }
 
-func SetShootStateValues(ctx context.Context, cfg *cleura.ProviderConfig, shootCluster *api.GardenerShootShoot, data *resource_gardener_shoot.GardenerShootModel, diag *diag.Diagnostics) {
+func SetShootStateValues(ctx context.Context, cfg *ProviderConfig, shootCluster *api.GardenerShootShoot, data *resource_gardener_shoot.GardenerShootModel, diag *diag.Diagnostics) {
 	// Fetch from API when shootCluster not provided (e.g. Read, Update after worker changes)
 	if shootCluster == nil {
 		if cfg == nil || cfg.Client == nil {

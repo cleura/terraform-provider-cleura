@@ -8,28 +8,37 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 
-	"github.com/cleura/terraform-provider-cleura/cleura"
+	"github.com/cleura/cleura-client-go/cleura"
 )
 
-func fromResource(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) *cleura.ProviderConfig {
+// ProviderConfig holds provider-scoped settings passed to resources and data
+// sources. (Provider plumbing — deliberately not part of the shared client.)
+type ProviderConfig struct {
+	Client    *cleura.Client
+	Cloud     string
+	Region    string
+	ProjectID string
+}
+
+func fromResource(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) *ProviderConfig {
 	return fromProviderData(ctx, req.ProviderData, &resp.Diagnostics)
 }
 
-func fromDataSource(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) *cleura.ProviderConfig {
+func fromDataSource(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) *ProviderConfig {
 	return fromProviderData(ctx, req.ProviderData, &resp.Diagnostics)
 }
 
-func fromProviderData(_ context.Context, providerData any, diags *diag.Diagnostics) *cleura.ProviderConfig {
+func fromProviderData(_ context.Context, providerData any, diags *diag.Diagnostics) *ProviderConfig {
 	// ProviderData is nil during early framework validation passes; that is expected.
 	if providerData == nil {
 		return nil
 	}
 
-	cfg, ok := providerData.(*cleura.ProviderConfig)
+	cfg, ok := providerData.(*ProviderConfig)
 	if !ok {
 		diags.AddError(
 			"Unexpected Provider Configure Type",
-			fmt.Sprintf("Expected *cleura.ProviderConfig, got %T", providerData),
+			fmt.Sprintf("Expected *ProviderConfig, got %T", providerData),
 		)
 		return nil
 	}
@@ -37,7 +46,7 @@ func fromProviderData(_ context.Context, providerData any, diags *diag.Diagnosti
 	return cfg
 }
 
-func require(cfg *cleura.ProviderConfig, diags *diag.Diagnostics, requireProjectID bool) bool {
+func require(cfg *ProviderConfig, diags *diag.Diagnostics, requireProjectID bool) bool {
 	if cfg == nil || cfg.Client == nil {
 		diags.AddError(
 			"Unconfigured Cleura Provider",

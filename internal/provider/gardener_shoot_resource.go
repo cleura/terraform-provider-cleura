@@ -9,8 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/cleura/terraform-provider-cleura/api"
-	"github.com/cleura/terraform-provider-cleura/cleura"
+	"github.com/cleura/cleura-client-go/api"
 	"github.com/cleura/terraform-provider-cleura/internal/provider/resource_gardener_shoot"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -30,7 +29,7 @@ func NewGardenerShootResource() resource.Resource {
 }
 
 type GardenerShootResource struct {
-	config *cleura.ProviderConfig
+	config *ProviderConfig
 }
 
 func (r *GardenerShootResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {

@@ -63,13 +63,29 @@ resource "cleura_gardener_shoot_kubeconfig" "example" {
 }
 ```
 
-Provide credentials via environment variables (recommended) instead of in
-configuration:
+## Authentication
 
-```sh
-export CLEURA_API_USERNAME="your-username"
-export CLEURA_API_TOKEN="your-token"
-```
+Credentials are resolved in precedence order — the first tier that provides a
+value wins, per value:
+
+1. **Provider configuration** — `username`/`token` attributes (avoid
+   committing secrets; prefer the tiers below).
+2. **Environment variables** — the recommended path for CI:
+
+   ```sh
+   export CLEURA_API_USERNAME="your-username"
+   export CLEURA_API_TOKEN="your-token"
+   ```
+
+3. **The cleura CLI** — the recommended path on workstations. If the
+   [`cleura` CLI](https://github.com/cleura/cleura-cli) is installed and
+   logged in (`cleura login`), the provider uses its credentials
+   automatically; no configuration needed. Select a specific CLI profile with
+   the `profile` attribute, or disable the fallback entirely with
+   `use_cli = false`. Note that Cleura tokens are short-lived: if a plan
+   fails with an authentication error, re-run `cleura login`. Region and
+   project are deliberately **not** read from the CLI — state them explicitly
+   in configuration.
 
 The full schema for every resource and data source — including optional
 worker labels/annotations/taints, hibernation schedules, and maintenance

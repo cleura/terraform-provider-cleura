@@ -15,8 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	api "github.com/cleura/terraform-provider-cleura/api"
-	"github.com/cleura/terraform-provider-cleura/cleura"
+	api "github.com/cleura/cleura-client-go/api"
 )
 
 var _ resource.Resource = (*shootKubeconfigResource)(nil)
@@ -28,7 +27,7 @@ func NewGardenerShootKubeconfigResource() resource.Resource {
 }
 
 type shootKubeconfigResource struct {
-	config *cleura.ProviderConfig
+	config *ProviderConfig
 }
 
 func (r *shootKubeconfigResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {

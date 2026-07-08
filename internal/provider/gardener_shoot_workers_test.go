@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	api "github.com/cleura/terraform-provider-cleura/api"
+	api "github.com/cleura/cleura-client-go/api"
 	"github.com/cleura/terraform-provider-cleura/internal/provider/resource_gardener_shoot"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )

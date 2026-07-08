@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/cleura/terraform-provider-cleura/api"
-	"github.com/cleura/terraform-provider-cleura/cleura"
+	"github.com/cleura/cleura-client-go/api"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -20,7 +19,7 @@ func NewProjectDataSource() datasource.DataSource {
 }
 
 type projectDataSource struct {
-	config *cleura.ProviderConfig
+	config *ProviderConfig
 }
 
 type projectDataSourceModel struct {

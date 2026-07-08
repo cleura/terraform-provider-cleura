@@ -1,9 +1,0 @@
-package: api
-output: api/client.gen.go
-generate:
-  models: true
-  client: true
-  embedded-spec: true
-output-options:
-  overlay:
-    path: client-oapi-patch.yaml

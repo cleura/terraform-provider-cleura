@@ -2,8 +2,11 @@ package provider
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"regexp"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -16,7 +19,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
-	"github.com/cleura/terraform-provider-cleura/cleura"
+	"github.com/cleura/cleura-client-go/cleura"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -42,6 +45,8 @@ type cleuraProviderModel struct {
 	Url       types.String `tfsdk:"url"`
 	Username  types.String `tfsdk:"username"`
 	Token     types.String `tfsdk:"token"`
+	Profile   types.String `tfsdk:"profile"`
+	UseCli    types.Bool   `tfsdk:"use_cli"`
 }
 
 // cleuraProvider is the provider implementation.
@@ -87,6 +92,14 @@ func (p *cleuraProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 				Description: "Token for Cleura Cloud API. May also be provided via CLEURA_API_TOKEN environment variable.",
 				Optional:    true,
 				Sensitive:   true,
+			},
+			"profile": schema.StringAttribute{
+				Description: "cleura CLI profile to read fallback credentials from. Only consulted when username/token are not set in the configuration or environment. Defaults to the CLI's own current profile.",
+				Optional:    true,
+			},
+			"use_cli": schema.BoolAttribute{
+				Description: "Fall back to credentials from the cleura CLI ('cleura login') when username/token are not set in the configuration or environment. Defaults to true.",
+				Optional:    true,
 			},
 		},
 	}
@@ -134,6 +147,52 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	username := stringOrEnv(config.Username, "CLEURA_API_USERNAME")
 	token := stringOrEnv(config.Token, "CLEURA_API_TOKEN")
 
+	// Last credential tier: the cleura CLI ('cleura login'), like azurerm
+	// falls back to the az CLI. Explicit configuration and environment
+	// variables always win; the CLI only fills what is still missing.
+	// Region and project are deliberately not taken from the CLI —
+	// infrastructure code should state topology explicitly.
+	useCli := config.UseCli.IsNull() || config.UseCli.ValueBool()
+	if useCli && (username == "" || token == "") {
+		explicitCloud := cloud
+		creds, err := cliCredentials(ctx, config.Profile.ValueString())
+		switch {
+		case err == nil:
+			if username == "" {
+				username = creds.Username
+			}
+			if token == "" {
+				token = creds.Token
+			}
+			if cloud == "" {
+				cloud = creds.Cloud
+			}
+			if url == "" && explicitCloud == "" {
+				// Only adopt the CLI's endpoint when the cloud was not
+				// explicitly chosen either; otherwise the cloud's own
+				// default URL applies below.
+				url = creds.Endpoint
+			}
+			tflog.Info(ctx, "Using credentials from the cleura CLI", map[string]any{"cli_profile": creds.Profile})
+			if explicitCloud != "" && creds.Cloud != "" && explicitCloud != creds.Cloud {
+				resp.Diagnostics.AddWarning(
+					"Cleura CLI credentials may not match the configured cloud",
+					fmt.Sprintf("The provider is configured for cloud %q but the cleura CLI credentials (profile %q) were created for cloud %q. The token may not be valid there; set username/token explicitly or log in to the matching profile.", explicitCloud, creds.Profile, creds.Cloud),
+				)
+			}
+			if at, ok := creds.storedAt(); ok && time.Since(at) > 20*time.Hour {
+				resp.Diagnostics.AddWarning(
+					"Cleura CLI token may be expired",
+					fmt.Sprintf("The token from the cleura CLI (profile %q) was stored %s ago and Cleura tokens are short-lived. If authentication fails, run 'cleura login'.", creds.Profile, roughAge(time.Since(at))),
+				)
+			}
+		case errors.Is(err, errCLINoCredentials):
+			// Nothing stored: fall through to the standard errors below.
+		default:
+			resp.Diagnostics.AddWarning("Could not read credentials from the cleura CLI", err.Error())
+		}
+	}
+
 	if cloud == "" {
 		resp.Diagnostics.AddAttributeError(path.Root("cloud"), "Missing Cleura cloud", "Set cloud in the provider configuration or use the CLEURA_CLOUD environment variable.")
 	}
@@ -141,10 +200,10 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		resp.Diagnostics.AddAttributeError(path.Root("region"), "Missing Cleura region", "Set region in the provider configuration or use the CLEURA_REGION environment variable.")
 	}
 	if username == "" {
-		resp.Diagnostics.AddAttributeError(path.Root("username"), "Missing Cleura API username", "Set username in the provider configuration or use the CLEURA_API_USERNAME environment variable.")
+		resp.Diagnostics.AddAttributeError(path.Root("username"), "Missing Cleura API username", "Set username in the provider configuration or use the CLEURA_API_USERNAME environment variable, or run 'cleura login' (the provider falls back to cleura CLI credentials).")
 	}
 	if token == "" {
-		resp.Diagnostics.AddAttributeError(path.Root("token"), "Missing Cleura API token", "Set token in the provider configuration or use the CLEURA_API_TOKEN environment variable.")
+		resp.Diagnostics.AddAttributeError(path.Root("token"), "Missing Cleura API token", "Set token in the provider configuration or use the CLEURA_API_TOKEN environment variable, or run 'cleura login' (the provider falls back to cleura CLI credentials).")
 	}
 
 	if url == "" {
@@ -180,7 +239,7 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		return
 	}
 
-	providerConfig := &cleura.ProviderConfig{
+	providerConfig := &ProviderConfig{
 		Client:    client,
 		Cloud:     cloud,
 		Region:    region,
