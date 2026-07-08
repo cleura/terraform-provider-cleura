@@ -149,10 +149,10 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 
 	// Last credential tier: the cleura CLI ('cleura login'), like azurerm
 	// falls back to the az CLI. Explicit configuration and environment
-	// variables always win; the CLI only fills what is still missing.
-	// Region and project_id are inherited too, but with a warning: topology
-	// then depends on the operator's CLI profile, which azurerm's history
-	// with inherited subscriptions shows is worth surfacing loudly.
+	// variables always win; the CLI only fills what is still missing — and
+	// only credentials. Region and project_id are deliberately never read
+	// from the CLI profile: topology must not depend on operator state
+	// (the lesson azurerm 4.0 learned from inherited subscriptions).
 	useCli := config.UseCli.IsNull() || config.UseCli.ValueBool()
 	if useCli && (username == "" || token == "") {
 		explicitCloud := cloud
@@ -173,20 +173,6 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 				// explicitly chosen either; otherwise the cloud's own
 				// default URL applies below.
 				url = creds.Endpoint
-			}
-			if region == "" && creds.Region != "" {
-				region = creds.Region
-				resp.Diagnostics.AddWarning(
-					"Region taken from the cleura CLI",
-					fmt.Sprintf("region %q comes from cleura CLI profile %q, so plans depend on the operator's CLI configuration. Set region in the provider configuration (or CLEURA_REGION) for reproducible runs.", creds.Region, creds.Profile),
-				)
-			}
-			if projectID == "" && creds.ProjectID != "" {
-				projectID = creds.ProjectID
-				resp.Diagnostics.AddWarning(
-					"Project taken from the cleura CLI",
-					fmt.Sprintf("project_id %q comes from cleura CLI profile %q, so plans depend on the operator's CLI configuration. Set project_id in the provider configuration (or CLEURA_PROJECT_ID) for reproducible runs.", creds.ProjectID, creds.Profile),
-				)
 			}
 			tflog.Info(ctx, "Using credentials from the cleura CLI", map[string]any{"cli_profile": creds.Profile})
 			if explicitCloud != "" && creds.Cloud != "" && explicitCloud != creds.Cloud {
@@ -212,7 +198,7 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		resp.Diagnostics.AddAttributeError(path.Root("cloud"), "Missing Cleura cloud", "Set cloud in the provider configuration or use the CLEURA_CLOUD environment variable.")
 	}
 	if region == "" {
-		resp.Diagnostics.AddAttributeError(path.Root("region"), "Missing Cleura region", "Set region in the provider configuration or use the CLEURA_REGION environment variable.")
+		resp.Diagnostics.AddAttributeError(path.Root("region"), "Missing Cleura region", "Set region in the provider configuration or use the CLEURA_REGION environment variable. Unlike credentials, region is deliberately not read from the cleura CLI profile: where infrastructure lives should be stated in the configuration.")
 	}
 	if username == "" {
 		resp.Diagnostics.AddAttributeError(path.Root("username"), "Missing Cleura API username", "Set username in the provider configuration or use the CLEURA_API_USERNAME environment variable, or run 'cleura login' (the provider falls back to cleura CLI credentials).")
