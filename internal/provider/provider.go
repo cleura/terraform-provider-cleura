@@ -64,7 +64,7 @@ func (p *cleuraProvider) Metadata(_ context.Context, _ provider.MetadataRequest,
 // Schema defines the provider-level schema for configuration data.
 func (p *cleuraProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Interact with Cleura Cloud.",
+		Description: "Interact with Cleura Cloud. Authenticate by running `cleura login` — the provider uses the CLI's credentials automatically; set the CLEURA_API_USERNAME / CLEURA_API_TOKEN environment variables or the username / token attributes to override.",
 		Attributes: map[string]schema.Attribute{
 			"cloud": schema.StringAttribute{
 				Description: "Cleura cloud: `public`, `compliant`, or the name of a private cloud (e.g. `acme-corp`). Used as the Gardener region tag. Only public and compliant have a default API URL; private clouds require url. May also be provided via CLEURA_CLOUD.",

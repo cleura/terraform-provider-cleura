@@ -24,7 +24,8 @@ provider "cleura" {
   cloud      = "public" # "public", "compliant", or a private cloud name
   region     = "Sto2"
   project_id = "your-project-id"
-  # Credentials are read from CLEURA_API_USERNAME and CLEURA_API_TOKEN
+  # Credentials come from the cleura CLI — run `cleura login` first.
+  # (Set username/token here, or the CLEURA_API_* env vars, to override.)
 }
 
 resource "cleura_gardener_shoot" "example" {
@@ -65,25 +66,33 @@ resource "cleura_gardener_shoot_kubeconfig" "example" {
 
 ## Authentication
 
-Credentials are resolved in precedence order — the first tier that provides a
-value wins, per value:
+The simplest setup is the **cleura CLI**: run `cleura login` once and the
+provider uses those credentials automatically — the provider block then needs
+only `cloud`, `region`, and `project_id`. No token in configuration, no
+environment variables to manage.
 
-1. **Provider configuration** — `username`/`token` attributes (avoid
-   committing secrets; prefer the tiers below).
-2. **Environment variables** — the recommended path for CI:
+Credentials resolve in precedence order (the first tier that provides a value
+wins, per value). The CLI is the automatic fallback, so explicit configuration
+and environment variables always override it:
+
+1. **Provider configuration** — `username` / `token` attributes. Highest
+   precedence, but avoid committing secrets; prefer the CLI or environment.
+2. **Environment variables** — `CLEURA_API_USERNAME` / `CLEURA_API_TOKEN`
+   (and `CLEURA_API_URL` for private clouds). Use these to override the CLI —
+   for example in CI:
 
    ```sh
    export CLEURA_API_USERNAME="your-username"
    export CLEURA_API_TOKEN="your-token"
    ```
 
-3. **The cleura CLI** — the recommended path on workstations. If the
-   [`cleura` CLI](https://github.com/cleura/cleura-cli) is installed and
-   logged in (`cleura login`), the provider uses its credentials
-   automatically; no configuration needed. Select a specific CLI profile with
-   the `profile` attribute, or disable the fallback entirely with
-   `use_cli = false`. Note that Cleura tokens are short-lived: if a plan
-   fails with an authentication error, re-run `cleura login`.
+3. **The cleura CLI** — the default. If the
+   [`cleura` CLI](https://github.com/cleura/cleura-cli) is installed and logged
+   in (`cleura login`), the provider uses its credentials automatically, with
+   no configuration. Pin a specific CLI profile with the `profile` attribute,
+   or disable the fallback entirely with `use_cli = false`. Cleura tokens are
+   short-lived: if a plan fails with an authentication error, re-run
+   `cleura login`.
 
 Only **credentials** come from the CLI. `region` and `project_id` must always
 be stated in the provider configuration (or their environment variables):
