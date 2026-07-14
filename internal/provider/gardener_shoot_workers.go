@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 
-	api "github.com/cleura/terraform-provider-cleura/api"
+	api "github.com/cleura/cleura-client-go/api"
 )
 
 func WorkersListToMap(workers []resource_gardener_shoot.WorkersValue) map[string]resource_gardener_shoot.WorkersValue {

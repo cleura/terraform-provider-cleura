@@ -7,8 +7,8 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 
-	api "github.com/cleura/terraform-provider-cleura/api"
-	"github.com/cleura/terraform-provider-cleura/cleura"
+	api "github.com/cleura/cleura-client-go/api"
+	"github.com/cleura/cleura-client-go/cleura"
 )
 
 const (
@@ -63,7 +63,7 @@ func WaitForShootReconcile(ctx context.Context, client *cleura.Client, gardenerR
 		// Per-request timeout so a single call can't hang forever after connection drop
 		reqCtx, reqCancel := context.WithTimeout(ctx, shootReconcileRequestTimeout)
 
-		var response *api.GardenerGetShootResponse
+		var response *api.GardenerGetShootAPIResponse
 		var err error
 		for attempt := 0; attempt < shootReconcileMaxRetries; attempt++ {
 			response, err = client.GardenerGetShootWithResponse(reqCtx, gardenerRegionTag, openStackRegionTag, openStackProjectId, shootName)

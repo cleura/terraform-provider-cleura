@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/cleura/terraform-provider-cleura/api"
-	"github.com/cleura/terraform-provider-cleura/cleura"
+	"github.com/cleura/cleura-client-go/api"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -20,7 +19,7 @@ func NewProjectDataSource() datasource.DataSource {
 }
 
 type projectDataSource struct {
-	config *cleura.ProviderConfig
+	config *ProviderConfig
 }
 
 type projectDataSourceModel struct {
@@ -38,14 +37,15 @@ func (d *projectDataSource) Metadata(ctx context.Context, req datasource.Metadat
 
 func (d *projectDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Look up an OpenStack project by name within the provider's configured region and return its ID for use as project_id.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
-				Description: "OpenStack project ID.",
+				Description: "The OpenStack project ID resolved from the given name. Use this value as the project_id in the provider configuration or in Gardener resources.",
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
-				Description: "OpenStack project name to look up in the provider region.",
+				Description: "The OpenStack project name to look up. Matched exactly (case-sensitive) against projects in the provider's configured region.",
 			},
 		},
 	}

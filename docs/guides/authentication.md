@@ -1,0 +1,197 @@
+---
+page_title: "Authentication and CI"
+subcategory: "Guides"
+description: |-
+  How the Cleura provider resolves credentials (provider config > environment > cleura CLI), the CLEURA_* environment variables it reads, running in CI with GitHub Actions and GitLab CI, and troubleshooting the provider's authentication warnings.
+---
+
+# Authentication and CI
+
+The Cleura provider talks to the Cleura Cloud API and authenticates with a
+**username + API token pair**. It can obtain that pair from three places, and it
+resolves the rest of its configuration — `cloud`, `region`, `project_id`, `url` —
+alongside it. This guide explains the precedence between those places, the
+environment variables involved, how to wire the provider up in CI, and what the
+authentication warnings mean.
+
+The simplest local setup is the [`cleura` CLI](https://github.com/cleura/cleura-cli):
+run `cleura login` once (it handles the password and SMS two-factor prompt) and the
+provider picks up the credentials automatically, so the provider block only needs
+topology:
+
+```hcl
+provider "cleura" {
+  cloud      = "public"           # "public", "compliant", or a private cloud name
+  region     = "Sto2"             # OpenStack region tag — case-sensitive
+  project_id = "your-project-id"  # required for cleura_gardener_shoot resources
+
+  # username / token are taken from `cleura login` automatically.
+  # Set them here — or via CLEURA_API_USERNAME / CLEURA_API_TOKEN — to override.
+}
+```
+
+~> **Region tags are case-sensitive.** The live Cleura API returns capitalized
+tags (`Sto2`, `Fra1`, `Kna1`) and the provider matches them exactly. Use `Sto2`,
+not `sto2`.
+
+## Credential precedence
+
+Each value is resolved **independently**, and the first tier that supplies a
+non-empty value wins for that value. The cleura CLI is the automatic fallback, so
+explicit configuration and environment variables always override it.
+
+1. **Provider configuration** — the `cloud`, `region`, `project_id`, `url`,
+   `username`, and `token` attributes. Highest precedence, but avoid committing
+   secrets; prefer the environment or the CLI for credentials.
+2. **Environment variables** — the six `CLEURA_*` variables in the table below.
+   An attribute set to the empty string (`""`) is treated as unset and falls
+   through to its environment variable, so a pattern like
+   `token = var.cleura_token` with an empty default does not shadow
+   `CLEURA_API_TOKEN`.
+3. **The cleura CLI** — the default. When the CLI is installed and logged in
+   (`cleura login`), the provider reads its stored credentials. This tier is
+   consulted **only** when `use_cli` is not `false` **and** `username` or `token`
+   is still missing after tiers 1–2. Pin a specific CLI profile with the
+   `profile` attribute (it defaults to the CLI's current profile), or disable the
+   tier entirely with `use_cli = false`.
+
+Only **credentials** come from the CLI. It can fill `username`, `token`, `cloud`,
+and (conditionally) `url` — it **never** fills `region` or `project_id`. Where
+your infrastructure lives must be stated in the configuration or environment, so
+that a plan does not silently depend on an operator's CLI profile.
+
+When the provider falls back to the CLI it runs `cleura config get-credentials` as
+a subprocess with the `CLEURA_*` **credential** variables stripped from that
+subprocess's environment. The CLI tier therefore reflects the CLI's *stored login
+state* only — an environment credential participates as its own (higher) tier, not
+by leaking into the CLI. `CLEURA_PROFILE` and `CLEURA_CONFIG` are **not** stripped:
+they steer which profile and config file the CLI reads.
+
+~> **Credentials are read once, when the provider is configured.** A token that
+expires partway through a long `apply` fails at the resource call that needs it,
+not at configure time. Re-run after `cleura login` (or after refreshing the token
+in the environment).
+
+## Environment variables
+
+The provider reads these six variables as its tier-2 fallback. They are shared
+with the cleura CLI. The **Resolution** column shows the full chain the provider
+walks for that value.
+
+| Environment variable  | Provider attribute   | Resolution                     |
+|-----------------------|----------------------|--------------------------------|
+| `CLEURA_API_USERNAME` | `username`           | config → env → CLI             |
+| `CLEURA_API_TOKEN`    | `token` (sensitive)  | config → env → CLI             |
+| `CLEURA_CLOUD`        | `cloud`              | config → env → CLI             |
+| `CLEURA_API_URL`      | `url`                | config → env → CLI &nbsp;¹     |
+| `CLEURA_REGION`       | `region`             | config → env &nbsp;(never CLI) |
+| `CLEURA_PROJECT_ID`   | `project_id`         | config → env &nbsp;(never CLI) |
+
+¹ `url` is only adopted from the CLI's stored endpoint when `cloud` was **not** set
+explicitly. When `cloud` is set, that cloud's built-in default URL applies instead.
+Defaults exist for `public` and `compliant` only; **private clouds must set `url`**
+(or `CLEURA_API_URL`).
+
+The `profile` and `use_cli` attributes have **no environment-variable fallback** —
+set them in the provider block if you need them.
+
+`CLEURA_PROFILE` and `CLEURA_CONFIG` are **not** provider inputs. They only steer
+the cleura CLI subprocess (which profile, and which config file, tier 3 reads).
+Setting them changes which stored CLI credentials the provider falls back to, but
+they are never read as provider configuration and are not listed above.
+
+## Running in CI
+
+Cleura API tokens are **short-lived**, so a token pasted into a long-lived CI
+secret will soon expire and the job will start failing. Instead, **mint a fresh
+token at the start of each run**. There are two non-interactive ways to do that;
+both need a **single-factor service account** (SMS two-factor cannot be completed
+in CI), and both keep the topology (`CLEURA_CLOUD`, `CLEURA_REGION`,
+`CLEURA_PROJECT_ID`) in plain job variables — only the password is a secret.
+
+### Option 1 — the cleura CLI (recommended)
+
+Install the [`cleura` CLI](https://github.com/cleura/cleura-cli), pass the service
+account's password in the masked `CLEURA_API_PASSWORD` variable, and run
+`cleura login` at the start of the job. The provider then reads the freshly stored
+credentials from its CLI tier, so no token handling leaks into your pipeline.
+Ready-to-copy pipelines (GitHub Actions, GitLab CI, plain shell) live in the CLI
+repository under
+[`examples/ci/`](https://github.com/cleura/cleura-cli/tree/main/examples/ci).
+
+```yaml
+# GitHub Actions
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    env:
+      CLEURA_API_PASSWORD: ${{ secrets.CLEURA_API_PASSWORD }}   # masked secret
+      CLEURA_CLOUD:        public
+      CLEURA_REGION:       Sto2                                          # case-sensitive tag
+      CLEURA_PROJECT_ID:   your-project-id
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: go install github.com/cleura/cleura-cli/cmd/cleura@latest   # or download a release binary
+      - run: cleura login -u ${{ vars.CLEURA_USERNAME }}         # mints a fresh token
+      - run: terraform init
+      - run: terraform apply -auto-approve
+```
+
+### Option 2 — a curl prestep (no CLI)
+
+If you would rather not install the CLI, mint the token yourself by POSTing the
+service account's credentials to the Cleura auth API and exporting the result as
+`CLEURA_API_TOKEN`; the provider then reads it from tier 2. Use the API URL for
+your cloud (`https://rest.cleura.cloud` for public,
+`https://rest.compliant.cleura.cloud` for compliant):
+
+```shell
+export CLEURA_API_TOKEN="$(
+  curl -fsS -X POST https://rest.cleura.cloud/auth/v2/tokens \
+    -H 'Content-Type: application/json' \
+    -d "{\"login\": \"$CLEURA_API_USERNAME\", \"password\": \"$CLEURA_API_PASSWORD\"}" |
+    jq -r '.token'
+)"
+[ -n "$CLEURA_API_TOKEN" ] || { echo "login failed (a two-factor account cannot log in this way)"; exit 1; }
+
+export CLEURA_CLOUD=public
+export CLEURA_REGION=Sto2            # case-sensitive tag
+export CLEURA_PROJECT_ID=your-project-id
+
+terraform init
+terraform apply -auto-approve
+```
+
+`CLEURA_API_USERNAME` and `CLEURA_API_PASSWORD` come from masked CI variables and
+the token never outlives the job. This is essentially what `cleura login` does
+internally; Option 1 just wraps it and handles the error and two-factor cases.
+
+To be explicit that the provider must not probe for a CLI it is not using, set
+`use_cli = false` in the provider block.
+
+## Troubleshooting authentication warnings
+
+These are **warnings**, not errors — the plan continues — but each one usually
+precedes an authentication failure. The first column is the diagnostic summary the
+provider emits, so you can match what you see.
+
+| Warning                                                                                                              | Cause                                                                                                                        | Fix                                                                                                                          |
+|----------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| **Mixed credential sources**                                                                                         | `username` came from config/env but `token` came from a cleura CLI profile that belongs to a *different* user; the API authenticates the pair together. | Set **both** `username` and `token` explicitly (config or `CLEURA_API_*`), or set **neither** and let the CLI supply the whole pair. |
+| **Cleura CLI credentials may not match the configured cloud** / **…may not match the API endpoint**                  | The configured `cloud` (or resolved `url`) differs from the cloud/endpoint the CLI token was minted against; the token may be invalid there. | `cleura login` to the matching profile/cloud, or set `username`/`token` (and `url` for private clouds) explicitly.          |
+| **Cleura CLI token may be expired**                                                                                  | The CLI token was stored more than 20 hours ago, and Cleura tokens are short-lived.                                          | Run `cleura login` (or `cleura login --profile <profile>`).                                                                 |
+| **The cleura CLI is too old for provider integration**                                                               | The installed CLI predates the `cleura config get-credentials` contract the provider relies on.                             | Upgrade the cleura CLI (v0.7.0 is current), or set `username`/`token` explicitly.                                           |
+
+If credentials are missing entirely you get hard errors instead — *Missing Cleura
+API username* / *token* / *cloud* / *region* — with guidance for each attribute.
+When the cleura CLI is not installed at all, the CLI tier is skipped silently; run
+Terraform with `TF_LOG=DEBUG` to see the trace. To take the CLI out of the picture
+completely, set `use_cli = false`.
+
+## See also
+
+- The [provider configuration reference](../index.md) — every attribute and its
+  default.
+- The [`cleura` CLI](https://github.com/cleura/cleura-cli) — `cleura login`,
+  profiles, and `cleura config get-credentials` (the contract the CLI tier uses).

@@ -1,0 +1,18 @@
+name: Feature request / improvement
+description: Suggest a new resource, data source, attribute, or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: The workflow or gap you're hitting.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What resource, data source, attribute, or behaviour would help? Alternatives you've considered.
+    validations:
+      required: false
