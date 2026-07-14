@@ -1,0 +1,43 @@
+name: Bug report
+description: Report a problem with the Cleura Terraform provider
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve the Cleura provider. **Please do not include
+        tokens, passwords, or other secrets.** `TF_LOG` output and Terraform state
+        can contain sensitive values — redact them before pasting.
+  - type: input
+    id: versions
+    attributes:
+      label: Terraform and provider version
+      description: Output of `terraform version` (it lists the provider version too).
+      placeholder: "Terraform v1.9.0 + provider registry.terraform.io/cleura/cleura v0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: auth
+    attributes:
+      label: How are credentials provided?
+      options:
+        - The cleura CLI (cleura login)
+        - Environment variables (CLEURA_API_USERNAME / CLEURA_API_TOKEN)
+        - The provider block (username / token)
+        - Not sure
+    validations:
+      required: false
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you expected, what happened instead, and any error output (set `TF_LOG=DEBUG` if useful — and redact secrets).
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A minimal Terraform configuration and the commands you ran.
+    validations:
+      required: false

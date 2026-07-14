@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/cleura/terraform-provider-cleura/security/advisories/new
+    about: Report security issues privately — please do not open a public issue.
+  - name: cleura CLI issues
+    url: https://github.com/cleura/cleura-cli/issues
+    about: For problems with `cleura login` or the CLI itself, which the provider uses for authentication.
