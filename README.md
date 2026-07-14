@@ -1,6 +1,6 @@
 # Terraform Provider Cleura
 
-A Terraform/OpenTofu provider for [Cleura Cloud](https://cleura.com/) — manage Cleura's managed
+A Terraform or OpenTofu provider for [Cleura Cloud](https://cleura.com/) — manage Cleura's managed
 services (managed Kubernetes today) as code, alongside the OpenStack provider that handles the
 underlying infrastructure. Published on the
 [Terraform Registry](https://registry.terraform.io/providers/cleura/cleura); works against both

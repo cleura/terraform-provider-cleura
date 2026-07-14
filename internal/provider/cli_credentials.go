@@ -39,9 +39,9 @@ var errCLINoCredentials = errors.New("no credentials available from the cleura C
 var errCLINotFound = fmt.Errorf("%w: the cleura CLI is not installed (not found in PATH)", errCLINoCredentials)
 
 // errCLITooOld means the installed CLI predates the get-credentials contract
-// (released v0.1.0 errors with "unknown command"). Worth one clear warning,
-// not an opaque malfunction on every plan.
-var errCLITooOld = errors.New("the installed cleura CLI does not support 'config get-credentials'; upgrade to cleura v0.2.0 or newer, or set credentials explicitly")
+// and errors with "unknown command". Worth one clear warning, not an opaque
+// malfunction on every plan.
+var errCLITooOld = errors.New("the installed cleura CLI does not support 'config get-credentials'; upgrade the cleura CLI, or set credentials explicitly")
 
 const cliTimeout = 5 * time.Second
 
