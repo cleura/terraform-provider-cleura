@@ -18,7 +18,7 @@ require (
 	github.com/agext/levenshtein v1.2.2 // indirect
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
-	github.com/cloudflare/circl v1.6.1 // indirect
+	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/go-openapi/jsonpointer v0.23.0 // indirect
 	github.com/go-openapi/swag/jsonname v0.26.0 // indirect
