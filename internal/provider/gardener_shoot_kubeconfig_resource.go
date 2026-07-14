@@ -83,6 +83,13 @@ func (r *shootKubeconfigResource) ModifyPlan(ctx context.Context, req resource.M
 		return
 	}
 
+	// Guard project_id at plan time (Create needs it): otherwise plan is green
+	// and only apply fails with "Missing project_id". Placed after the destroy
+	// early-return above because Delete is a no-op that needs no project_id.
+	if !require(r.config, &resp.Diagnostics, true) {
+		return
+	}
+
 	var plan shootKubeconfigResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {

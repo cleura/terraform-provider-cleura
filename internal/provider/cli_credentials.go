@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -85,8 +86,11 @@ func cliCredentials(ctx context.Context, profile string) (*cliCredentialsEnvelop
 		if errors.As(err, &exitErr) {
 			stderr := strings.TrimSpace(string(exitErr.Stderr))
 			switch {
-			case exitErr.ExitCode() == 2:
+			case exitErr.ExitCode() == 2 && json.Valid(bytes.TrimSpace(out)):
 				// Contractual "nothing stored"; stdout carries the reason.
+				// A non-JSON exit 2 is a crash (e.g. a panic also exits 2), not
+				// the contract — let it fall through to the malfunction path so
+				// the stderr trace is surfaced instead of a false "not logged in".
 				if reason := parseCLIErrorReason(out); reason != "" {
 					return nil, fmt.Errorf("%w: %s", errCLINoCredentials, reason)
 				}

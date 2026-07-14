@@ -167,12 +167,18 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	// from the CLI profile: topology must not depend on operator state
 	// (the lesson azurerm 4.0 learned from inherited subscriptions).
 	useCli := config.UseCli.IsNull() || config.UseCli.ValueBool()
+	if !useCli && config.Profile.ValueString() != "" {
+		resp.Diagnostics.AddWarning(
+			"cleura CLI profile ignored",
+			"The profile attribute is set but use_cli is false, so the cleura CLI credential tier is disabled and profile has no effect.",
+		)
+	}
 	var creds *cliCredentialsEnvelope
 	tokenFromCLI := false
 	cliMissing := false
 	cliNote := ""
 	if useCli && (username == "" || token == "") {
-		explicitCloud, explicitUsername := cloud, username
+		explicitCloud, explicitUsername, explicitToken := cloud, username, token
 		var err error
 		creds, err = cliCredentials(ctx, config.Profile.ValueString())
 		switch {
@@ -183,6 +189,15 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 				resp.Diagnostics.AddWarning(
 					"Mixed credential sources",
 					fmt.Sprintf("username %q comes from the provider configuration or environment, but the token comes from cleura CLI profile %q, which belongs to %q. The pair may not authenticate; set both explicitly, or neither.", explicitUsername, creds.Profile, creds.Username),
+				)
+			}
+			// The mirror case: an explicit token paired with a CLI-sourced
+			// username is the same coherence hazard and must warn too, or the
+			// asymmetry lulls operators into trusting a silent mismatch.
+			if explicitToken != "" && explicitUsername == "" && creds.Username != "" {
+				resp.Diagnostics.AddWarning(
+					"Mixed credential sources",
+					fmt.Sprintf("the token comes from the provider configuration or environment, but the username %q comes from cleura CLI profile %q. The pair may not authenticate; set both explicitly, or neither.", creds.Username, creds.Profile),
 				)
 			}
 			if username == "" {
@@ -278,7 +293,7 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	// A CLI token sent to a different endpoint than it was created against
 	// fails opaquely; make the divergence visible even when the cloud names
 	// happen to match (e.g. an alternate deployment of the same cloud).
-	if tokenFromCLI && creds.Endpoint != "" && url != "" && url != creds.Endpoint {
+	if tokenFromCLI && creds.Endpoint != "" && url != "" && strings.TrimRight(url, "/") != strings.TrimRight(creds.Endpoint, "/") {
 		resp.Diagnostics.AddWarning(
 			"Cleura CLI credentials may not match the API endpoint",
 			fmt.Sprintf("The token from cleura CLI profile %q was created against %s, but the provider targets %s. The token may not be valid there.", creds.Profile, creds.Endpoint, url),
@@ -294,7 +309,8 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	ctx = tflog.SetField(ctx, "cleura_project_id", projectID)
 	ctx = tflog.SetField(ctx, "cleura_url", url)
 	ctx = tflog.SetField(ctx, "cleura_username", username)
-	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "cleura_token")
+	// The token is deliberately never added as a tflog field, so it cannot
+	// appear in provider logs.
 
 	tflog.Debug(ctx, "Creating Cleura client")
 
