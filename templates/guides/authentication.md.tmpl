@@ -78,19 +78,19 @@ The provider reads these six variables as its tier-2 fallback. They are shared
 with the cleura CLI. The **Resolution** column shows the full chain the provider
 walks for that value.
 
-| Environment variable  | Provider attribute   | Resolution                     |
-|-----------------------|----------------------|--------------------------------|
-| `CLEURA_API_USERNAME` | `username`           | config → env → CLI             |
-| `CLEURA_API_TOKEN`    | `token` (sensitive)  | config → env → CLI             |
-| `CLEURA_CLOUD`        | `cloud`              | config → env → CLI             |
-| `CLEURA_API_URL`      | `url`                | config → env → CLI &nbsp;¹     |
-| `CLEURA_REGION`       | `region`             | config → env &nbsp;(never CLI) |
-| `CLEURA_PROJECT_ID`   | `project_id`         | config → env &nbsp;(never CLI) |
+| Environment variable  | Provider attribute  | Resolution               |
+|-----------------------|---------------------|--------------------------|
+| `CLEURA_API_USERNAME` | `username`          | config → env → CLI       |
+| `CLEURA_API_TOKEN`    | `token` (sensitive) | config → env → CLI       |
+| `CLEURA_CLOUD`        | `cloud`             | config → env → CLI       |
+| `CLEURA_API_URL`      | `url`               | config → env → CLI       |
+| `CLEURA_REGION`       | `region`            | config → env (never CLI) |
+| `CLEURA_PROJECT_ID`   | `project_id`        | config → env (never CLI) |
 
-¹ `url` is only adopted from the CLI's stored endpoint when `cloud` was **not** set
-explicitly. When `cloud` is set, that cloud's built-in default URL applies instead.
-Defaults exist for `public` and `compliant` only; **private clouds must set `url`**
-(or `CLEURA_API_URL`).
+`url` is taken from the CLI's stored endpoint only when `cloud` is **not** set
+explicitly; when `cloud` is set, that cloud's built-in default URL applies instead.
+Defaults exist for `public` and `compliant` only, so **private clouds must set
+`url`** (or `CLEURA_API_URL`).
 
 The `profile` and `use_cli` attributes have **no environment-variable fallback** —
 set them in the provider block if you need them.
