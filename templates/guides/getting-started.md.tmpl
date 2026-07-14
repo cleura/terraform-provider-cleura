@@ -267,8 +267,10 @@ terraform init
 terraform apply -auto-approve
 ```
 
-Ready-to-copy `cleura login` pipelines (GitHub Actions, GitLab CI, plain shell)
-live in the CLI repository under
+The [Authentication guide](authentication.md#running-in-ci) has complete CI
+recipes for both paths (a `cleura login` job and a CLI-less curl token prestep),
+and ready-to-copy `cleura login` pipelines (GitHub Actions, GitLab CI, plain
+shell) live in the CLI repository under
 [`examples/ci/`](https://github.com/cleura/cleura-cli/tree/main/examples/ci).
 
 ~> **Treat an API token like a password** — it grants access to your Cleura
