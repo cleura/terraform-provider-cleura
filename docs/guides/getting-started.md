@@ -240,11 +240,22 @@ provider "cleura" {
 }
 ```
 
-**In CI**, there is usually no interactive terminal (and no CLI installed).
-Export the username and token as environment variables and Terraform
-authenticates without the CLI. The CLI tier is skipped harmlessly when the
-`cleura` binary is absent — it simply falls through to the credentials you
-provided:
+**In CI**, there is no interactive terminal, so authenticate one of two
+non-interactive ways:
+
+- **Pre-created token** — set `CLEURA_API_USERNAME` and `CLEURA_API_TOKEN` as
+  masked secrets; the provider reads them directly and the CLI need not be
+  installed. Mint the token shortly before the run, since Cleura tokens are
+  short-lived.
+- **`cleura login` in the job** — install the CLI, set `CLEURA_API_PASSWORD` as a
+  masked secret, and run `cleura login -u "$CLEURA_USERNAME"` at the start of the
+  job. It logs in with no prompt and no secret on the command line, minting a
+  fresh token each run that the provider then picks up from the CLI. This is how
+  you authenticate from a *password* rather than a pre-issued token, and it needs
+  a single-factor service account (SMS two-factor cannot be completed in CI).
+
+Either way, set the topology (`CLEURA_REGION`, `CLEURA_PROJECT_ID`, `CLEURA_CLOUD`)
+as plain job variables. A pre-created-token job looks like:
 
 ```shell
 export CLEURA_API_USERNAME="$CLEURA_API_USERNAME" # from a masked CI secret
@@ -256,11 +267,14 @@ terraform init
 terraform apply -auto-approve
 ```
 
+Ready-to-copy `cleura login` pipelines (GitHub Actions, GitLab CI, plain shell)
+live in the CLI repository under
+[`examples/ci/`](https://github.com/cleura/cleura-cli/tree/main/examples/ci).
+
 ~> **Treat an API token like a password** — it grants access to your Cleura
-account. Never commit it. The `token` attribute is marked sensitive, and the
-CLI and environment variables keep it out of your configuration and state
-entirely. Because tokens are short-lived, CI jobs should obtain a fresh token
-per run (e.g. `cleura login` early in the job) rather than reuse a stored one.
+account. Never commit it. The `token` attribute is marked sensitive, and
+`cleura login` and the environment variables keep it out of your configuration
+and state.
 
 ## 7. Using the OpenStack provider alongside this one
 
