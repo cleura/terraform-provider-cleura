@@ -108,43 +108,43 @@ resource "cleura_gardener_shoot" "example" {
 
 ### Required
 
-- `kubernetes_version` (String)
-- `name` (String)
-- `shoot_provider` (Attributes) (see [below for nested schema](#nestedatt--shoot_provider))
+- `kubernetes_version` (String) Required. Target Kubernetes version (numeric, dot-separated), e.g. "1.35.6". Applied IN PLACE on change (sent in the edit request) — NOT a replacement. Downgrades are rejected by the API.
+- `name` (String) Required. Cluster (shoot) name: 1–15 characters of letters, digits, and hyphens. Also the import ID. Changing it forces the cluster to be recreated.
+- `shoot_provider` (Attributes) Required. OpenStack provider configuration: infrastructure, load-balancer provider, and worker groups. Its infrastructure and load-balancer settings are fixed at creation (see nested attributes); only `workers` are edited in place. (see [below for nested schema](#nestedatt--shoot_provider))
 
 ### Optional
 
-- `allowed_cidrs` (List of String)
-- `enable_ha_control_plane` (Boolean)
-- `hibernation_schedules` (Attributes List) (see [below for nested schema](#nestedatt--hibernation_schedules))
-- `maintenance` (Attributes) (see [below for nested schema](#nestedatt--maintenance))
-- `networking` (Attributes) (see [below for nested schema](#nestedatt--networking))
+- `allowed_cidrs` (List of String) List of CIDR blocks permitted to reach the cluster's Kubernetes API server. Optional and Computed: if omitted, the API's current allowlist is read back into state. Applied in place (no replacement).
+- `enable_ha_control_plane` (Boolean) Bool. Whether the Kubernetes control plane runs in high-availability mode. Optional and Computed (the API sets it when omitted). Enabling it is applied in place; disabling it (true → false) forces the cluster to be recreated.
+- `hibernation_schedules` (Attributes List) Optional and Computed list of automated hibernation windows that scale the cluster down and back up on a schedule. Omit to leave hibernation unmanaged (current schedules are read back into state). Applied in place. (see [below for nested schema](#nestedatt--hibernation_schedules))
+- `maintenance` (Attributes) Optional and Computed maintenance settings (auto-update behavior and the daily maintenance time window). If omitted, Gardener assigns defaults that are read back into state. Applied in place. (see [below for nested schema](#nestedatt--maintenance))
+- `networking` (Attributes) Optional and Computed cluster networking configuration (CNI type, Cilium options, and the computed node CIDR). If omitted, the API's networking is read back into state. `type` is immutable; only `cilium_provider_config` is editable in place. (see [below for nested schema](#nestedatt--networking))
 
 ### Read-Only
 
-- `cloud_profile_name` (String)
+- `cloud_profile_name` (String) Read-only (Computed). Name of the Gardener CloudProfile the cluster was created against; assigned by the API and written back to state.
 
 <a id="nestedatt--shoot_provider"></a>
 ### Nested Schema for `shoot_provider`
 
 Required:
 
-- `infrastructure_config` (Attributes) (see [below for nested schema](#nestedatt--shoot_provider--infrastructure_config))
-- `load_balancer_provider` (String)
-- `workers` (Attributes List) (see [below for nested schema](#nestedatt--shoot_provider--workers))
+- `infrastructure_config` (Attributes) Required. OpenStack network infrastructure for the cluster. `floating_pool_name` is fixed at creation; `network_id`/`router_id`/`workers_network_cidr` are auto-created and read back when omitted. (see [below for nested schema](#nestedatt--shoot_provider--infrastructure_config))
+- `load_balancer_provider` (String) Required. OpenStack load-balancer provider, e.g. "amphora". Fixed at creation — changing it forces the cluster to be recreated.
+- `workers` (Attributes List) Required. One or more worker node groups. Groups are matched by `name` across plan and state and reconciled per group (updated, added, or removed) in place — this does not recreate the cluster. (see [below for nested schema](#nestedatt--shoot_provider--workers))
 
 <a id="nestedatt--shoot_provider--infrastructure_config"></a>
 ### Nested Schema for `shoot_provider.infrastructure_config`
 
 Required:
 
-- `floating_pool_name` (String)
+- `floating_pool_name` (String) Required. Name of the external floating-IP pool, e.g. "ext-net". Fixed at creation — changing it forces the cluster to be recreated.
 
 Optional:
 
-- `network_id` (String)
-- `router_id` (String)
-- `workers_network_cidr` (String)
+- `network_id` (String) OpenStack network UUID. Optional and Computed: omit to let Cleura create a network and write its ID back to state (no replacement). Setting an explicit, different UUID forces the cluster to be recreated.
+- `router_id` (String) OpenStack router UUID. Optional and Computed: omit to let Cleura create a router and write its ID back to state (no replacement). Setting an explicit, different UUID forces the cluster to be recreated.
+- `workers_network_cidr` (String) CIDR for the worker node subnet, e.g. "10.250.0.0/16". Optional and Computed: omit to let Cleura assign one and write it back (no replacement). Setting an explicit, different value forces the cluster to be recreated.
 
 
 <a id="nestedatt--shoot_provider--workers"></a>
@@ -152,32 +152,32 @@ Optional:
 
 Required:
 
-- `machine` (Attributes) (see [below for nested schema](#nestedatt--shoot_provider--workers--machine))
-- `volume_size` (String)
+- `machine` (Attributes) Required. Machine (node) specification for the group: flavor and OS image. (see [below for nested schema](#nestedatt--shoot_provider--workers--machine))
+- `volume_size` (String) Required. Root disk size for each node in the group, e.g. "50Gi".
 
 Optional:
 
-- `annotations` (Attributes List) (see [below for nested schema](#nestedatt--shoot_provider--workers--annotations))
-- `labels` (Attributes List) (see [below for nested schema](#nestedatt--shoot_provider--workers--labels))
-- `max_surge` (Number)
-- `maximum` (Number)
-- `minimum` (Number)
-- `name` (String)
-- `taints` (Attributes List) (see [below for nested schema](#nestedatt--shoot_provider--workers--taints))
-- `zones` (List of String)
+- `annotations` (Attributes List) Optional and Computed list of Kubernetes node annotations (key/value) applied to the group. Managed exclusively by Terraform: omitting the block clears all annotations server-side. Applied in place. (see [below for nested schema](#nestedatt--shoot_provider--workers--annotations))
+- `labels` (Attributes List) Optional and Computed list of Kubernetes node labels (key/value) applied to the group. Managed exclusively by Terraform: omitting the block clears all labels server-side. Applied in place. (see [below for nested schema](#nestedatt--shoot_provider--workers--labels))
+- `max_surge` (Number) Int64, Optional and Computed. Number of extra nodes that may be added above `maximum` during a rolling update. Pinned from state when omitted on update.
+- `maximum` (Number) Int64, Optional and Computed. Maximum node count (cluster-autoscaler upper bound). On update the current value is pinned from state when omitted.
+- `minimum` (Number) Int64, Optional and Computed. Minimum node count (cluster-autoscaler lower bound). On update the current value is pinned from state when omitted.
+- `name` (String) Worker-group name (letters, digits, underscores, hyphens). Optional and Computed (assigned by the API if omitted). Serves as the group's identity: renaming it deletes the old group and creates a new one (node churn for that group), rather than replacing the whole cluster.
+- `taints` (Attributes List) Optional and Computed list of Kubernetes node taints applied to the group. Managed exclusively by Terraform: omitting the block removes all taints server-side. Applied in place. (see [below for nested schema](#nestedatt--shoot_provider--workers--taints))
+- `zones` (List of String) List of strings, Optional and Computed. OpenStack availability zones the group's nodes are spread across, e.g. ["nova"]. Pinned from state when omitted on update.
 
 Read-Only:
 
-- `max_unavailable` (Number)
+- `max_unavailable` (Number) Int64, read-only (Computed). Number of nodes allowed to be unavailable during a rolling update; defaults to 0 and is not user-configurable (the API value is read back into state).
 
 <a id="nestedatt--shoot_provider--workers--machine"></a>
 ### Nested Schema for `shoot_provider.workers.machine`
 
 Optional:
 
-- `image_name` (String)
-- `image_version` (String)
-- `type` (String)
+- `image_name` (String) String, Optional and Computed. Node OS image name, e.g. "gardenlinux". API default read back if omitted.
+- `image_version` (String) String, Optional and Computed. Node OS image version (numeric, dot-separated), e.g. "1877.19.0". API default read back if omitted.
+- `type` (String) String, Optional and Computed. OpenStack flavor / instance type for the nodes, e.g. "b.2c4gb". API default read back if omitted.
 
 
 <a id="nestedatt--shoot_provider--workers--annotations"></a>
@@ -185,8 +185,8 @@ Optional:
 
 Required:
 
-- `key` (String)
-- `value` (String)
+- `key` (String) Required. Annotation key.
+- `value` (String) Required. Annotation value.
 
 
 <a id="nestedatt--shoot_provider--workers--labels"></a>
@@ -194,8 +194,8 @@ Required:
 
 Required:
 
-- `key` (String)
-- `value` (String)
+- `key` (String) Required. Label key.
+- `value` (String) Required. Label value.
 
 
 <a id="nestedatt--shoot_provider--workers--taints"></a>
@@ -203,9 +203,9 @@ Required:
 
 Required:
 
-- `effect` (String)
-- `key` (String)
-- `value` (String)
+- `effect` (String) Required. Taint effect; one of "NoSchedule", "NoExecute", or "PreferNoSchedule".
+- `key` (String) Required. Taint key.
+- `value` (String) Required. Taint value.
 
 
 
@@ -215,8 +215,8 @@ Required:
 
 Required:
 
-- `end` (String)
-- `start` (String)
+- `end` (String) Required. Cron expression (UTC) for when the cluster wakes from hibernation, e.g. "0 8 * * 1-5". Same cron syntax as start.
+- `start` (String) Required. Cron expression (UTC) for when the cluster hibernates, e.g. "0 20 * * 1-5". Standard 5–7 field cron; @-shortcuts (@daily, @every 1h, ...) are also accepted. NOTE: cron format, unlike the HHMMSS+ZZZZ used by maintenance.time_window.
 
 
 <a id="nestedatt--maintenance"></a>
@@ -224,16 +224,16 @@ Required:
 
 Optional:
 
-- `auto_update` (Attributes) (see [below for nested schema](#nestedatt--maintenance--auto_update))
-- `time_window` (Attributes) (see [below for nested schema](#nestedatt--maintenance--time_window))
+- `auto_update` (Attributes) Optional and Computed. Controls whether Gardener automatically applies patch updates during the maintenance window. (see [below for nested schema](#nestedatt--maintenance--auto_update))
+- `time_window` (Attributes) Optional and Computed. Daily window during which automatic maintenance runs. (see [below for nested schema](#nestedatt--maintenance--time_window))
 
 <a id="nestedatt--maintenance--auto_update"></a>
 ### Nested Schema for `maintenance.auto_update`
 
 Optional:
 
-- `kubernetes_version` (Boolean)
-- `machine_image_version` (Boolean)
+- `kubernetes_version` (Boolean) Bool, Optional and Computed. When true, Kubernetes patch versions are auto-updated during the maintenance window.
+- `machine_image_version` (Boolean) Bool, Optional and Computed. When true, worker node machine-image versions are auto-updated during the maintenance window.
 
 
 <a id="nestedatt--maintenance--time_window"></a>
@@ -241,8 +241,8 @@ Optional:
 
 Required:
 
-- `begin` (String)
-- `end` (String)
+- `begin` (String) Required. Window start as HHMMSS+ZZZZ — six-digit 24-hour time plus a four-digit UTC offset, e.g. "020000+0000" (02:00:00 UTC). This format differs from the cron used by hibernation_schedules.
+- `end` (String) Required. Window end in the same HHMMSS+ZZZZ format, e.g. "060000+0000".
 
 
 
@@ -251,26 +251,26 @@ Required:
 
 Optional:
 
-- `cilium_provider_config` (Attributes) (see [below for nested schema](#nestedatt--networking--cilium_provider_config))
-- `type` (String)
+- `cilium_provider_config` (Attributes) Optional and Computed Cilium CNI tuning. Only valid when networking.type = "cilium" (rejected at plan time otherwise). Applied in place. (see [below for nested schema](#nestedatt--networking--cilium_provider_config))
+- `type` (String) CNI plugin: one of "calico" or "cilium". Optional and Computed (API default read back if omitted). Immutable — changing it forces the cluster to be recreated.
 
 Read-Only:
 
-- `nodes` (String)
+- `nodes` (String) Read-only (Computed). Node network CIDR assigned by the API and written back to state.
 
 <a id="nestedatt--networking--cilium_provider_config"></a>
 ### Nested Schema for `networking.cilium_provider_config`
 
 Optional:
 
-- `debug` (Boolean)
-- `encryption_enabled` (Boolean)
-- `encryption_mode` (String)
-- `encryption_node_to_node_enabled` (Boolean)
-- `encryption_strict_mode_enabled` (Boolean)
-- `hubble_enabled` (Boolean)
-- `policy_audit_mode` (Boolean)
-- `tunnel` (String)
+- `debug` (Boolean) Bool, Optional and Computed. Enables Cilium debug logging.
+- `encryption_enabled` (Boolean) Bool, Optional and Computed. Enables Cilium transparent encryption.
+- `encryption_mode` (String) String, Optional and Computed. Encryption backend; only "wireguard" is allowed.
+- `encryption_node_to_node_enabled` (Boolean) Bool, Optional and Computed. Enables node-to-node encryption.
+- `encryption_strict_mode_enabled` (Boolean) Bool, Optional and Computed. Enables strict-mode encryption (drops unencrypted traffic).
+- `hubble_enabled` (Boolean) Bool, Optional and Computed. Enables the Hubble network observability layer.
+- `policy_audit_mode` (Boolean) Bool, Optional and Computed. Runs network policies in audit-only mode (log, don't enforce).
+- `tunnel` (String) String, Optional and Computed. Datapath tunneling mode; one of "vxlan", "geneve", or "disabled".
 
 ## Notes
 

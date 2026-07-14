@@ -41,7 +41,7 @@ func (r *GardenerShootResource) Metadata(ctx context.Context, req resource.Metad
 }
 
 func (r *GardenerShootResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = resource_gardener_shoot.GardenerShootResourceSchema(ctx)
+	resp.Schema = withShootDescriptions(resource_gardener_shoot.GardenerShootResourceSchema(ctx))
 }
 
 func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
