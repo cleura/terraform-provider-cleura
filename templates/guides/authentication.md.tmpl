@@ -172,16 +172,30 @@ To be explicit that the provider must not probe for a CLI it is not using, set
 
 ## Troubleshooting authentication warnings
 
-These are **warnings**, not errors — the plan continues — but each one usually
-precedes an authentication failure. The first column is the diagnostic summary the
-provider emits, so you can match what you see.
+These are **warnings**, not errors (the plan continues), but each one usually
+precedes an authentication failure. Match the bold summary the provider prints
+against the entries below.
 
-| Warning                                                                                                              | Cause                                                                                                                        | Fix                                                                                                                          |
-|----------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|
-| **Mixed credential sources**                                                                                         | `username` came from config/env but `token` came from a cleura CLI profile that belongs to a *different* user; the API authenticates the pair together. | Set **both** `username` and `token` explicitly (config or `CLEURA_API_*`), or set **neither** and let the CLI supply the whole pair. |
-| **Cleura CLI credentials may not match the configured cloud** / **…may not match the API endpoint**                  | The configured `cloud` (or resolved `url`) differs from the cloud/endpoint the CLI token was minted against; the token may be invalid there. | `cleura login` to the matching profile/cloud, or set `username`/`token` (and `url` for private clouds) explicitly.          |
-| **Cleura CLI token may be expired**                                                                                  | The CLI token was stored more than 20 hours ago, and Cleura tokens are short-lived.                                          | Run `cleura login` (or `cleura login --profile <profile>`).                                                                 |
-| **The cleura CLI is too old for provider integration**                                                               | The installed CLI predates the `cleura config get-credentials` contract the provider relies on.                             | Upgrade the cleura CLI (v0.7.0 is current), or set `username`/`token` explicitly.                                           |
+**Mixed credential sources**
+- *Cause:* `username` came from config/env but `token` came from a cleura CLI
+  profile belonging to a *different* user; the API authenticates the pair together.
+- *Fix:* set **both** `username` and `token` explicitly (config or `CLEURA_API_*`),
+  or set **neither** and let the CLI supply the whole pair.
+
+**Cleura CLI credentials may not match the configured cloud / API endpoint**
+- *Cause:* the configured `cloud` (or resolved `url`) differs from the cloud or
+  endpoint the CLI token was minted against; the token may be invalid there.
+- *Fix:* `cleura login` to the matching profile/cloud, or set `username`/`token`
+  (and `url` for private clouds) explicitly.
+
+**Cleura CLI token may be expired**
+- *Cause:* the CLI token was stored a while ago and Cleura tokens are short-lived.
+- *Fix:* run `cleura login` (or `cleura login --profile <profile>`).
+
+**The cleura CLI is too old for provider integration**
+- *Cause:* the installed CLI predates the `cleura config get-credentials` contract
+  the provider relies on.
+- *Fix:* upgrade the cleura CLI, or set `username`/`token` explicitly.
 
 If credentials are missing entirely you get hard errors instead — *Missing Cleura
 API username* / *token* / *cloud* / *region* — with guidance for each attribute.
