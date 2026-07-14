@@ -1,13 +1,14 @@
 terraform {
   required_providers {
     cleura = {
-      source = "cleura/cleura"
+      source  = "cleura/cleura"
+      version = "~> 0.2"
     }
   }
 }
 
 provider "cleura" {
-  region = "Sto2"
+  region     = "Sto2"
   project_id = "8a22c50af68e45c6b4dd7722cce8f93a"
 }
 

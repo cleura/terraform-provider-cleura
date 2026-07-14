@@ -34,7 +34,8 @@ repository. Real-world reports directly shape what we build next.
 terraform {
   required_providers {
     cleura = {
-      source = "cleura/cleura"
+      source  = "cleura/cleura"
+      version = "~> 0.2"
     }
   }
 }

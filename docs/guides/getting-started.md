@@ -85,7 +85,7 @@ terraform {
   required_providers {
     cleura = {
       source  = "cleura/cleura"
-      version = "~> 0.1"
+      version = "~> 0.2"
     }
   }
 }
@@ -292,7 +292,7 @@ terraform {
   required_providers {
     cleura = {
       source  = "cleura/cleura"
-      version = "~> 0.1"
+      version = "~> 0.2"
     }
     openstack = {
       source = "terraform-provider-openstack/openstack"

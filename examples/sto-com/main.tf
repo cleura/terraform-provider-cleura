@@ -1,7 +1,8 @@
 terraform {
   required_providers {
     cleura = {
-      source = "cleura/cleura"
+      source  = "cleura/cleura"
+      version = "~> 0.2"
     }
   }
 }
