@@ -102,73 +102,73 @@ they are never read as provider configuration and are not listed above.
 
 ## Running in CI
 
-In CI the cleanest path is to supply everything through environment variables and
-leave the provider block empty:
+Cleura API tokens are **short-lived**, so a token pasted into a long-lived CI
+secret will soon expire and the job will start failing. Instead, **mint a fresh
+token at the start of each run**. There are two non-interactive ways to do that;
+both need a **single-factor service account** (SMS two-factor cannot be completed
+in CI), and both keep the topology (`CLEURA_CLOUD`, `CLEURA_REGION`,
+`CLEURA_PROJECT_ID`) in plain job variables — only the password is a secret.
 
-```hcl
-# With the CLEURA_* variables set in the job environment, this is the whole block.
-provider "cleura" {}
-```
+### Option 1 — the cleura CLI (recommended)
 
-Store `CLEURA_API_USERNAME` and `CLEURA_API_TOKEN` as encrypted/masked CI secrets;
-set the topology variables (`CLEURA_CLOUD`, `CLEURA_REGION`, `CLEURA_PROJECT_ID`) as
-plain job variables since they are not sensitive.
-
-~> **Cleura tokens are short-lived.** A token stored as a long-lived CI secret will
-expire. Prefer minting a fresh token per run: install the CLI and run `cleura login`
-at the start of the job (single-factor accounts can do this non-interactively with
-`CLEURA_API_PASSWORD`), and either export the resulting token to `CLEURA_API_TOKEN`
-or let the provider fall back to the CLI tier. Ready-to-copy login pipelines live in
-the CLI repository under
+Install the [`cleura` CLI](https://github.com/cleura/cleura-cli), pass the service
+account's password in the masked `CLEURA_API_PASSWORD` variable, and run
+`cleura login` at the start of the job. The provider then reads the freshly stored
+credentials from its CLI tier, so no token handling leaks into your pipeline.
+Ready-to-copy pipelines (GitHub Actions, GitLab CI, plain shell) live in the CLI
+repository under
 [`examples/ci/`](https://github.com/cleura/cleura-cli/tree/main/examples/ci).
 
-### GitHub Actions
-
 ```yaml
-name: terraform
-on: [push]
-
+# GitHub Actions
 jobs:
   terraform:
     runs-on: ubuntu-latest
     env:
-      # Credentials — store as encrypted repository secrets.
-      CLEURA_API_USERNAME: ${{ secrets.CLEURA_API_USERNAME }}
-      CLEURA_API_TOKEN:    ${{ secrets.CLEURA_API_TOKEN }}
-      # Topology — never read from the CLI, so set it here (or in the provider block).
+      CLEURA_API_PASSWORD: ${{ secrets.CLEURA_API_PASSWORD }}   # masked secret
       CLEURA_CLOUD:        public
-      CLEURA_REGION:       Sto2            # case-sensitive region tag
+      CLEURA_REGION:       Sto2                                          # case-sensitive tag
       CLEURA_PROJECT_ID:   your-project-id
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
+      - run: go install github.com/cleura/cleura-cli/cmd/cleura@latest   # or download a release binary
+      - run: cleura login -u ${{ vars.CLEURA_USERNAME }}         # mints a fresh token
       - run: terraform init
       - run: terraform apply -auto-approve
 ```
 
-### GitLab CI
+### Option 2 — a curl prestep (no CLI)
 
-Define `CLEURA_API_USERNAME` and `CLEURA_API_TOKEN` under **Settings → CI/CD →
-Variables** (protected + masked). GitLab injects CI/CD variables into the job
-environment, so the provider reads them with no further wiring.
+If you would rather not install the CLI, mint the token yourself by POSTing the
+service account's credentials to the Cleura auth API and exporting the result as
+`CLEURA_API_TOKEN`; the provider then reads it from tier 2. Use the API URL for
+your cloud (`https://rest.cleura.cloud` for public,
+`https://rest.compliant.cleura.cloud` for compliant):
 
-```yaml
-terraform:
-  image:
-    name: hashicorp/terraform:latest
-    entrypoint: [""]
-  variables:
-    # Topology — not sensitive; credentials come from the masked CI/CD variables.
-    CLEURA_CLOUD: public
-    CLEURA_REGION: Sto2                    # case-sensitive region tag
-    CLEURA_PROJECT_ID: your-project-id
-  script:
-    - terraform init
-    - terraform apply -auto-approve
+```shell
+export CLEURA_API_TOKEN="$(
+  curl -fsS -X POST https://rest.cleura.cloud/auth/v2/tokens \
+    -H 'Content-Type: application/json' \
+    -d "{\"login\": \"$CLEURA_API_USERNAME\", \"password\": \"$CLEURA_API_PASSWORD\"}" |
+    jq -r '.token'
+)"
+[ -n "$CLEURA_API_TOKEN" ] || { echo "login failed (a two-factor account cannot log in this way)"; exit 1; }
+
+export CLEURA_CLOUD=public
+export CLEURA_REGION=Sto2            # case-sensitive tag
+export CLEURA_PROJECT_ID=your-project-id
+
+terraform init
+terraform apply -auto-approve
 ```
 
-For CI you can also set `use_cli = false` in the provider block to opt out of the
-CLI tier entirely, so the provider never probes for a CLI binary it does not need.
+`CLEURA_API_USERNAME` and `CLEURA_API_PASSWORD` come from masked CI variables and
+the token never outlives the job. This is essentially what `cleura login` does
+internally; Option 1 just wraps it and handles the error and two-factor cases.
+
+To be explicit that the provider must not probe for a CLI it is not using, set
+`use_cli = false` in the provider block.
 
 ## Troubleshooting authentication warnings
 
