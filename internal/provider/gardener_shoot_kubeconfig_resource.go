@@ -48,31 +48,37 @@ func (r *shootKubeconfigResource) Metadata(ctx context.Context, req resource.Met
 
 func (r *shootKubeconfigResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Issues and manages a short-lived administrator kubeconfig for a Gardener shoot cluster. The kubeconfig is minted once, at creation, with a fixed validity (expiration_seconds); Terraform then rotates it by replacing the resource as the credential nears expiry (renew_before_expiry_seconds). Because the API only generates a kubeconfig at issuance and never regenerates it on update, changing shoot_name or expiration_seconds forces replacement. cloud, region, project_id, and credentials come from the provider configuration.",
 		Attributes: map[string]schema.Attribute{
 			"kubeconfig": schema.StringAttribute{
+				Description:   "The generated administrator kubeconfig for the shoot cluster, rendered as YAML. This is the full admin credential and is marked sensitive.",
 				Computed:      true,
 				Sensitive:     true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"last_applied": schema.StringAttribute{
+				Description:   "RFC3339 timestamp recording when the kubeconfig was issued. Combined with expiration_seconds and renew_before_expiry_seconds to decide when the credential must be rotated.",
 				Computed:      true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"shoot_name": schema.StringAttribute{
-				Required: true,
+				Description: "Name of the Gardener shoot cluster to issue the admin kubeconfig for. Changing it forces replacement, because the kubeconfig is only minted at creation and is not regenerated on update.",
+				Required:    true,
 				// Bug #8: changing the target shoot must reissue the kubeconfig
 				// (Update does not regenerate it), so force a replace.
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"expiration_seconds": schema.Int64Attribute{
-				Required: true,
+				Description: "Requested validity of the issued kubeconfig, in seconds from when it is minted. Changing it forces replacement so a new kubeconfig can be issued with the new lifetime.",
+				Required:    true,
 				// Bug #8: changing the validity must reissue the kubeconfig.
 				PlanModifiers: []planmodifier.Int64{int64planmodifier.RequiresReplace()},
 			},
 			"renew_before_expiry_seconds": schema.Int64Attribute{
-				Computed: true,
-				Optional: true,
-				Default:  int64default.StaticInt64(0),
+				Description: "Seconds before the kubeconfig's expiry at which Terraform proactively rotates it (by replacing the resource on the next plan/apply). Must be less than expiration_seconds. Defaults to 0, meaning the kubeconfig is rotated only after it has fully expired.",
+				Computed:    true,
+				Optional:    true,
+				Default:     int64default.StaticInt64(0),
 			},
 		},
 	}

@@ -37,14 +37,15 @@ func (d *projectDataSource) Metadata(ctx context.Context, req datasource.Metadat
 
 func (d *projectDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Look up an OpenStack project by name within the provider's configured region and return its ID for use as project_id.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
-				Description: "OpenStack project ID.",
+				Description: "The OpenStack project ID resolved from the given name. Use this value as the project_id in the provider configuration or in Gardener resources.",
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
-				Description: "OpenStack project name to look up in the provider region.",
+				Description: "The OpenStack project name to look up. Matched exactly (case-sensitive) against projects in the provider's configured region.",
 			},
 		},
 	}

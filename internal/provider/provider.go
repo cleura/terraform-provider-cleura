@@ -74,7 +74,7 @@ func (p *cleuraProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 				},
 			},
 			"region": schema.StringAttribute{
-				Description: "OpenStack region tag for this provider configuration (e.g. sto2, sto-com). May also be provided via CLEURA_REGION.",
+				Description: "OpenStack region tag, matched case-sensitively — enter it exactly as Cleura reports it (e.g. Sto2, Fra1, Kna1 on public cloud; sto-com on compliant). Never read from the cleura CLI. May also be provided via CLEURA_REGION.",
 				Optional:    true,
 			},
 			"project_id": schema.StringAttribute{
