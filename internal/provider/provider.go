@@ -372,6 +372,7 @@ func (p *cleuraProvider) Resources(_ context.Context) []func() resource.Resource
 	return []func() resource.Resource{
 		NewGardenerShootResource,
 		NewGardenerShootKubeconfigResource,
+		NewGardenerBootstrapResource,
 		NewOpenStackProjectResource,
 		NewOpenStackUserResource,
 		NewOpenStackRoleAssignmentResource,
