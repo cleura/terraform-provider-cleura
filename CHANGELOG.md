@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`expires_at` on `cleura_gardener_shoot_kubeconfig`.** The API now returns the
+  expiry it granted, so rotation is driven by that instead of an estimate. The
+  provider used to stamp the local mint time into `last_applied` and add the
+  *requested* `expiration_seconds`, which diverged whenever the API clamped the
+  lifetime.
+
+### Changed
+
+- Upgraded to `cleura-client-go` v0.3.0.
+- **Worker taint values may be omitted.** A taint with only a key and an effect
+  is valid in Kubernetes, and a taint with no value now reads back as null
+  rather than an empty string.
+
+### Deprecated
+
+- **`last_applied` on `cleura_gardener_shoot_kubeconfig`**, superseded by
+  `expires_at`. It is still written, and resources whose state predates
+  `expires_at` keep using it to estimate expiry, so upgrading does not rotate
+  any existing kubeconfig.
+
+### Known issues
+
+- **`image_name` on worker machines is effectively read-only.** The v0.3.0 API
+  write schema carries only the image version, while reads still return the
+  image name, so a configured `image_name` is not sent. The public cloud profile
+  offers a single image (`gardenlinux`), so no image is currently unreachable.
+
 ## v0.2.0
 
 This release adds authentication through the cleura CLI, moves the provider onto
