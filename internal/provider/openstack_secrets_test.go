@@ -54,19 +54,33 @@ func echoingHandler(mock *mockIdentity) http.Handler {
 	})
 }
 
+// leakyPasswords covers the encodings a password picks up on its way back
+// through an API response. A JSON body escapes the secret before the provider
+// ever sees it, so matching the raw string is not enough: Go escapes & < > as
+// \u0026 \u003c \u003e, and an ASCII-only encoder escapes every non-ASCII rune.
+var leakyPasswords = map[string]string{
+	"plain":            "Sup3rSecret-Passw0rd",
+	"html escaped":     "Sup3r&Secret<Passw0rd>",
+	"quotes and slash": `Sup3r"Secret\Passw0rd`,
+	"non ascii":        "Sup3rSecret-Lösenord",
+	"every escape":     `S&p3r"<Löse\nord>`,
+}
+
 // TestOpenStackUserErrorDoesNotEchoThePassword drives a failing create through
 // the real Terraform binary against an API that echoes the request payload in
 // its error. The password is write-only, so keeping it out of state is not
 // enough: the diagnostic reaches the console and CI logs too.
 func TestOpenStackUserErrorDoesNotEchoThePassword(t *testing.T) {
-	mock := newMockIdentity()
-	srv := httptest.NewServer(echoingHandler(mock))
-	t.Cleanup(srv.Close)
-	t.Setenv("CLEURA_API_URL", srv.URL)
-	t.Setenv("CLEURA_API_USERNAME", mock.username)
-	t.Setenv("CLEURA_API_TOKEN", mock.token)
+	for name, password := range leakyPasswords {
+		t.Run(name, func(t *testing.T) {
+			mock := newMockIdentity()
+			srv := httptest.NewServer(echoingHandler(mock))
+			t.Cleanup(srv.Close)
+			t.Setenv("CLEURA_API_URL", srv.URL)
+			t.Setenv("CLEURA_API_USERNAME", mock.username)
+			t.Setenv("CLEURA_API_TOKEN", mock.token)
 
-	config := fmt.Sprintf(`
+			config := fmt.Sprintf(`
 provider "cleura" {
   cloud   = "public"
   region  = "Sto2"
@@ -77,17 +91,67 @@ resource "cleura_openstack_user" "leaky" {
   name                = "tfsec-user"
   password            = %q
   password_wo_version = "1"
-}`, secretTestPassword)
+}`, password)
 
-	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{{
-			Config: config,
-			// The error must name the failure and show the redaction marker,
-			// and must not contain the password itself.
-			ExpectError: regexp.MustCompile(`(?s)Failed to create OpenStack user.*\(redacted\)`),
-		}},
-	})
+			resource.UnitTest(t, resource.TestCase{
+				ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+				Steps: []resource.TestStep{{
+					Config: config,
+					// The apply must fail without the password reaching the
+					// diagnostic, in any encoding. The echoing handler returns a
+					// body that is not the documented error envelope, so the
+					// provider withholds it rather than trusting a text match.
+					ExpectError: regexp.MustCompile(`(?s)Failed to create OpenStack user.*(withheld|redacted)`),
+				}},
+			})
+		})
+	}
+}
+
+// TestOpenStackUserEnvelopeErrorIsRedacted covers the other half: a body that
+// IS the documented error envelope is still shown, because its message is
+// useful — with the password stripped out of it.
+func TestOpenStackUserEnvelopeErrorIsRedacted(t *testing.T) {
+	for name, password := range leakyPasswords {
+		t.Run(name, func(t *testing.T) {
+			for _, body := range envelopeBodiesEchoing(password) {
+				detail := apiErrorDetailRedacting(400, []byte(body), password)
+				assertNoSecret(t, detail, password)
+				if !strings.Contains(detail, "(redacted)") {
+					t.Errorf("detail %q should show the redaction marker", detail)
+				}
+			}
+		})
+	}
+}
+
+// envelopeBodiesEchoing renders the documented error envelope with the
+// password echoed inside its message, once per encoder style. The envelope is
+// marshalled properly so the body stays valid JSON whatever the password
+// contains — an invalid body takes the withholding path instead, which is a
+// different case and is covered by the apply test above.
+func envelopeBodiesEchoing(password string) []string {
+	var bodies []string
+	for _, enc := range secretEncodings(password) {
+		body, err := json.Marshal(map[string]any{
+			"error": map[string]any{"code": 400, "message": "password " + enc + " is too weak"},
+		})
+		if err != nil {
+			continue
+		}
+		bodies = append(bodies, string(body))
+	}
+	return bodies
+}
+
+// assertNoSecret fails if any encoding of the secret survives in text.
+func assertNoSecret(t *testing.T, text, secret string) {
+	t.Helper()
+	for _, enc := range secretEncodings(secret) {
+		if strings.Contains(text, enc) {
+			t.Errorf("the password leaked as %q into: %s", enc, text)
+		}
+	}
 }
 
 // TestOpenStackUserPasswordStaysOutOfArtifacts asserts the password is absent

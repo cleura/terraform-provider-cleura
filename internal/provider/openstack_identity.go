@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"sort"
 	"strings"
@@ -29,11 +30,24 @@ var errNotFound = errors.New("not found")
 // from the API's {"error": {"code", "message"}} envelope when present, else
 // the raw body.
 func apiErrorDetail(status int, body []byte) string {
+	return apiErrorDetailRedacting(status, body, "")
+}
+
+// apiErrorDetailRedacting renders an API error for a request that carried a
+// write-only secret. The documented error envelope is rendered as usual with
+// the secret stripped from the message; anything else is withheld, because a
+// body we cannot parse is a body whose echoed fields we cannot find.
+func apiErrorDetailRedacting(status int, body []byte, secret string) string {
 	var envelope api.FrameworkHttpErrorResponse
 	if json.Unmarshal(body, &envelope) == nil && envelope.Error.Message != "" {
-		return fmt.Sprintf("%s (HTTP %d)", envelope.Error.Message, status)
+		return redactSecret(fmt.Sprintf("%s (HTTP %d)", envelope.Error.Message, status), secret)
 	}
 	if b := strings.TrimSpace(string(body)); b != "" {
+		if secret != "" {
+			return fmt.Sprintf("HTTP %d (the API's response was not the documented error "+
+				"envelope, so it has been withheld: the request carried a write-only password "+
+				"and an unrecognised body may echo it)", status)
+		}
 		return fmt.Sprintf("HTTP %d: %s", status, b)
 	}
 	return fmt.Sprintf("HTTP %d", status)
@@ -42,29 +56,85 @@ func apiErrorDetail(status int, body []byte) string {
 // redactSecret removes a write-only secret from text that is on its way to a
 // diagnostic. API errors are surfaced with their response body attached, and
 // some APIs echo the rejected request fields back; a password that Terraform
-// keeps out of state must not reach the console or a CI log either. The length
-// guard keeps a short or empty value from matching unrelated text.
+// keeps out of state must not reach the console or a CI log either.
+//
+// The secret is matched in every encoding it might have picked up on the way
+// back: a JSON body escapes it before we ever see it, so a password holding
+// "&", "<", ">", a quote or a backslash does not appear literally. Go escapes
+// the first three as \u0026, \u003c and \u003e; encoders elsewhere escape
+// every non-ASCII rune the same way. Matching text alone can never be
+// exhaustive, which is why apiErrorDetailRedacting withholds a body it cannot
+// parse rather than trusting this to catch everything.
+//
+// The length guard keeps a short or empty value from matching unrelated text.
 func redactSecret(text, secret string) string {
 	if len(secret) < 8 {
 		return text
 	}
-	return strings.ReplaceAll(text, secret, "(redacted)")
+	for _, encoded := range secretEncodings(secret) {
+		text = strings.ReplaceAll(text, encoded, "(redacted)")
+	}
+	return text
+}
+
+// secretEncodings returns the forms a secret can take in an API response body.
+func secretEncodings(secret string) []string {
+	encodings := []string{secret}
+
+	// Go's encoder, which HTML-escapes & < > on top of the JSON basics.
+	if b, err := json.Marshal(secret); err == nil && len(b) >= 2 {
+		encodings = append(encodings, string(b[1:len(b)-1]))
+	}
+	// The same without HTML escaping, which is what many encoders emit.
+	var plain strings.Builder
+	enc := json.NewEncoder(&plain)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(secret); err == nil {
+		if q := strings.TrimRight(plain.String(), "\n"); len(q) >= 2 {
+			encodings = append(encodings, q[1:len(q)-1])
+		}
+	}
+	// An ASCII-only encoder (Python's json.dumps default, for one) escapes
+	// every non-ASCII rune as \uXXXX.
+	var ascii strings.Builder
+	for _, r := range secret {
+		switch {
+		case r > 127:
+			fmt.Fprintf(&ascii, "\\u%04x", r)
+		default:
+			ascii.WriteRune(r)
+		}
+	}
+	encodings = append(encodings, ascii.String())
+	// Percent-encoding, in case the value was reflected through a URL.
+	encodings = append(encodings, url.QueryEscape(secret))
+
+	// Longest first, so a broader encoding is replaced before a narrower one
+	// can leave a fragment behind, and without duplicates.
+	slices.SortFunc(encodings, func(a, b string) int { return len(b) - len(a) })
+	return slices.Compact(encodings)
 }
 
 // decodeJSON drains a response and decodes a 2xx body into out (nil to
 // discard). A non-2xx status is returned as an error carrying the API's
 // message; a 404 wraps errNotFound.
 func decodeJSON(resp *http.Response, out any) error {
+	return decodeJSONRedacting(resp, out, "")
+}
+
+// decodeJSONRedacting is decodeJSON for a request that carried a write-only
+// secret, so an error body cannot carry it back out into a diagnostic.
+func decodeJSONRedacting(resp *http.Response, out any, secret string) error {
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("reading response: %w", err)
 	}
 	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("%w: %s", errNotFound, apiErrorDetail(resp.StatusCode, body))
+		return fmt.Errorf("%w: %s", errNotFound, apiErrorDetailRedacting(resp.StatusCode, body, secret))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return errors.New(apiErrorDetail(resp.StatusCode, body))
+		return errors.New(apiErrorDetailRedacting(resp.StatusCode, body, secret))
 	}
 	if out != nil && len(body) > 0 {
 		if err := json.Unmarshal(body, out); err != nil {

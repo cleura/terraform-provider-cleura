@@ -156,7 +156,7 @@ func (r *openstackUserResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 	var created api.OpenStackIdentityUserWithProjectsAccess
-	if err := decodeJSON(response, &created); err != nil {
+	if err := decodeJSONRedacting(response, &created, body.Password); err != nil {
 		resp.Diagnostics.AddError("Failed to create OpenStack user", redactSecret(err.Error(), body.Password))
 		return
 	}
@@ -333,7 +333,9 @@ func (r *openstackUserResource) edit(ctx context.Context, domainID, id string, b
 		return nil, err
 	}
 	var user api.OpenStackIdentityUserWithProjectsAccess
-	if err := decodeJSON(response, &user); err != nil {
+	// body.Password is set only when the password is being rotated; an empty
+	// secret leaves the error text untouched.
+	if err := decodeJSONRedacting(response, &user, derefOrEmpty(body.Password)); err != nil {
 		return nil, err
 	}
 	return userFromAccessView(&user), nil
@@ -341,6 +343,14 @@ func (r *openstackUserResource) edit(ctx context.Context, domainID, id string, b
 
 // setOpenStackUserState copies the API's user into the model. The write-only
 // password stays null (the framework requires it to be absent from state).
+// derefOrEmpty reads an optional request field without a nil check at each use.
+func derefOrEmpty(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
 func setOpenStackUserState(m *openstackUserModel, u *api.OpenStackIdentityUser) {
 	m.ID = types.StringValue(u.Id)
 	m.DomainID = types.StringValue(u.DomainId)
