@@ -1,10 +1,14 @@
 package provider
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+
+	"github.com/cleura/terraform-provider-cleura/internal/provider/resource_gardener_shoot"
 )
 
 func kubeconfigModel(expiresAt, lastApplied string, expirationSeconds, renewBefore int64) *shootKubeconfigResourceModel {
@@ -117,9 +121,17 @@ func TestKubeconfigRenewalWindow(t *testing.T) {
 
 // TestOptionalTaintValue covers the other API change: a taint value may now be
 // omitted, which is valid in Kubernetes (key and effect are enough).
+//
+// The generated schema still marks value Required, so a missing value must map
+// to "" and never to null — null in a required attribute cannot be matched by
+// any config a practitioner is allowed to write.
 func TestOptionalTaintValue(t *testing.T) {
-	if got := optionalTaintValue(nil); !got.IsNull() {
-		t.Errorf("a missing taint value should map to null, got %v", got)
+	got := optionalTaintValue(nil)
+	if got.IsNull() {
+		t.Error("a missing taint value mapped to null, but the schema marks value Required")
+	}
+	if got.ValueString() != "" {
+		t.Errorf("a missing taint value = %q, want an empty string", got.ValueString())
 	}
 	v := "prod"
 	if got := optionalTaintValue(&v); got.ValueString() != "prod" {
@@ -128,5 +140,23 @@ func TestOptionalTaintValue(t *testing.T) {
 	empty := ""
 	if got := optionalTaintValue(&empty); got.IsNull() || got.ValueString() != "" {
 		t.Errorf("an explicit empty value must stay an empty string, got %v", got)
+	}
+}
+
+// TestTaintValueIsStillRequiredInTheSchema pins the constraint the mapping
+// above depends on. The schema is generated from the API spec; if it is ever
+// regenerated with value optional, this fails and both the "" mapping and the
+// docs note that tells practitioners to write value = "" can be revisited.
+func TestTaintValueIsStillRequiredInTheSchema(t *testing.T) {
+	s := resource_gardener_shoot.GardenerShootResourceSchema(context.Background())
+
+	attr, err := s.AttributeAtPath(context.Background(),
+		path.Root("shoot_provider").AtName("workers").AtListIndex(0).AtName("taints").AtListIndex(0).AtName("value"))
+	if err != nil {
+		t.Fatalf("could not reach shoot_provider.workers[*].taints[*].value in the schema: %v", err)
+	}
+	if !attr.IsRequired() {
+		t.Error("taint value is no longer Required: optionalTaintValue should map a missing value to null, " +
+			"and the gardener_shoot docs note about writing value = \"\" is now wrong")
 	}
 }

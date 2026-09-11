@@ -13,9 +13,12 @@
 ### Changed
 
 - Upgraded to `cleura-client-go` v0.3.0.
-- **Worker taint values may be omitted.** A taint with only a key and an effect
-  is valid in Kubernetes, and a taint with no value now reads back as null
-  rather than an empty string.
+- **Worker taint values may be omitted by the API.** A taint with only a key and
+  an effect is valid in Kubernetes, and the API now models that as a missing
+  field. `taints[*].value` remains **Required** in the provider schema, which is
+  generated from the API spec and has not been regenerated for this change, so a
+  taint with no value reads back as `""` — write `value = ""` for a valueless
+  taint.
 
 ### Deprecated
 

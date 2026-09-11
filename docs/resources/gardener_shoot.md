@@ -294,8 +294,10 @@ a value set in the configuration is not sent. The public cloud profile offers a 
 image (`gardenlinux`), so nothing is currently unreachable — but set `image_version` to
 pin a version, and treat `image_name` as something you read back rather than choose.
 
-`taints[*].value` may now be omitted: a taint with only a key and an effect is valid in
-Kubernetes, and the provider maps a taint with no value to null rather than `""`.
+The API now accepts a taint with no value — a key and an effect are enough in Kubernetes —
+but `taints[*].value` is still **Required** in this provider's schema, which is generated
+from the API spec and has not been regenerated for that change. Write `value = ""` for a
+valueless taint; that is also how a taint with no value reads back.
 
 ### Calico vs. Cilium
 

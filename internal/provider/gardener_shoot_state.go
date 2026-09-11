@@ -18,12 +18,18 @@ import (
 // fetchShoot GETs a single shoot by name. found is false when the API returns
 // HTTP 404 (the cluster was deleted out of band, e.g. via the console or kubeconfig
 // expiry), letting callers drop it from state instead of failing permanently.
-// optionalTaintValue maps a taint value the API may now omit. A taint without
-// a value is valid in Kubernetes (a key and effect are enough), and the API
-// models that as a missing field rather than an empty string.
+// optionalTaintValue maps a taint value the API may now omit.
+//
+// A taint without a value is valid in Kubernetes (a key and effect are
+// enough) and the API models that as a missing field. The generated Terraform
+// schema still marks value Required, though — it comes from the spec, which
+// has not been regenerated — so a missing value becomes "" rather than null.
+// Writing null into a required attribute would leave the read inconsistent
+// with any config that can be written at all. "" is also how Kubernetes treats
+// a valueless taint, so nothing is lost.
 func optionalTaintValue(v *string) basetypes.StringValue {
 	if v == nil {
-		return basetypes.NewStringNull()
+		return basetypes.NewStringValue("")
 	}
 	return basetypes.NewStringValue(*v)
 }
