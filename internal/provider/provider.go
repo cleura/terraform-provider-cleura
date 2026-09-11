@@ -362,6 +362,8 @@ func fmtUnknownDetail(attr, envKey string) string {
 func (p *cleuraProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewProjectDataSource,
+		NewOpenStackProjectDataSource,
+		NewOpenStackUserDataSource,
 	}
 }
 
@@ -370,6 +372,9 @@ func (p *cleuraProvider) Resources(_ context.Context) []func() resource.Resource
 	return []func() resource.Resource{
 		NewGardenerShootResource,
 		NewGardenerShootKubeconfigResource,
+		NewOpenStackProjectResource,
+		NewOpenStackUserResource,
+		NewOpenStackRoleAssignmentResource,
 	}
 }
 
