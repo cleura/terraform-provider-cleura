@@ -381,8 +381,8 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		hibernationSchedulesPtr = &hibernationSchedules
 	}
 
-	// Only send enable_ha_control_plane when it actually changes. The Cleura API
-	// returns 409 if asked to enable HA on a shoot where it is already enabled, and
+	// API WORKAROUND: only send enable_ha_control_plane when it actually changes.
+	// The API returns 409 if asked to enable HA on a shoot where it is already enabled, and
 	// disabling HA is handled as a replacement in ModifyPlan — so re-sending the
 	// unchanged value on an in-place update would always fail once HA is on.
 	var enableHaControlPlane *bool
