@@ -108,8 +108,16 @@ func (r *gardenerBootstrapResource) ModifyPlan(ctx context.Context, req resource
 		if resp.Diagnostics.HasError() {
 			return
 		}
-		target := "the provider's project_id"
-		if !plan.ProjectID.IsNull() && !plan.ProjectID.IsUnknown() {
+		// project_id is unknown whenever it refers to a project created in the
+		// same run, which is the flow this resource exists for — so that case
+		// gets its own wording rather than being reported as the provider's.
+		var target string
+		switch {
+		case plan.ProjectID.IsUnknown():
+			target = "the project this configuration creates (its id is not known until apply)"
+		case plan.ProjectID.IsNull():
+			target = "the provider's project_id"
+		default:
 			target = fmt.Sprintf("project %s", plan.ProjectID.ValueString())
 		}
 		resp.Diagnostics.AddWarning(
