@@ -286,6 +286,17 @@ The Cleura edit API cannot change the following after creation. Changing any of 
 
 Worker groups, by contrast, are reconciled **in place**: they are matched by their (immutable) `name`, so groups added, removed, or edited in `shoot_provider.workers` are created, deleted, or updated on the running cluster without recreating it. Keep each worker group's `name` stable — renaming a group reads as deleting the old one and adding a new one. Adding or removing groups emits a warning about possible temporary downtime or over-provisioning.
 
+### Worker machine image
+
+`shoot_provider.workers[*].machine.image_name` is **read-only in practice**. The API's
+write schema carries only the image version, while reads still return the image name, so
+a value set in the configuration is not sent. The public cloud profile offers a single
+image (`gardenlinux`), so nothing is currently unreachable — but set `image_version` to
+pin a version, and treat `image_name` as something you read back rather than choose.
+
+`taints[*].value` may now be omitted: a taint with only a key and an effect is valid in
+Kubernetes, and the provider maps a taint with no value to null rather than `""`.
+
 ### Calico vs. Cilium
 
 `networking.type` accepts `calico` or `cilium`. The `networking.cilium_provider_config` block (Hubble, encryption, tunnel mode, etc.) **applies only to Cilium**. Setting `cilium_provider_config` while `type` is anything other than `"cilium"` (including Calico) is rejected at plan time — remove the block or set `type = "cilium"`. Because `type` is immutable, choose the CNI up front: moving an existing Calico cluster to Cilium (or vice-versa) requires a recreate.
