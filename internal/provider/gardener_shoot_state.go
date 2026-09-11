@@ -18,6 +18,16 @@ import (
 // fetchShoot GETs a single shoot by name. found is false when the API returns
 // HTTP 404 (the cluster was deleted out of band, e.g. via the console or kubeconfig
 // expiry), letting callers drop it from state instead of failing permanently.
+// optionalTaintValue maps a taint value the API may now omit. A taint without
+// a value is valid in Kubernetes (a key and effect are enough), and the API
+// models that as a missing field rather than an empty string.
+func optionalTaintValue(v *string) basetypes.StringValue {
+	if v == nil {
+		return basetypes.NewStringNull()
+	}
+	return basetypes.NewStringValue(*v)
+}
+
 func fetchShoot(ctx context.Context, cfg *ProviderConfig, name string) (cluster *api.GardenerShootShoot, found bool, err error) {
 	resp, err := cfg.Client.GardenerGetShoot(ctx, cfg.Cloud, cfg.Region, cfg.ProjectID, name)
 	if err != nil {
@@ -356,7 +366,7 @@ func SetShootStateValues(ctx context.Context, cfg *ProviderConfig, shootCluster 
 					resource_gardener_shoot.TaintsValue{}.AttributeTypes(ctx),
 					map[string]attr.Value{
 						"key":    basetypes.NewStringValue(t.Key),
-						"value":  basetypes.NewStringValue(t.Value),
+						"value":  optionalTaintValue(t.Value),
 						"effect": basetypes.NewStringValue(string(t.Effect)),
 					},
 				)

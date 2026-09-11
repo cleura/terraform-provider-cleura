@@ -127,9 +127,12 @@ func workerToEditWorker(ctx context.Context, worker resource_gardener_shoot.Work
 		Name:        worker.Name.ValueStringPointer(),
 		Annotations: &annotations,
 		Labels:      &labels,
+		// API WORKAROUND: the write schema carries only the image version, while
+		// reads still return machine.image.name, so image_name is effectively
+		// read-only. The public cloud profile offers a single image
+		// (gardenlinux), so nothing is currently unreachable.
 		Machine: &api.GardenerMachine{
 			Type:         machine.MachineType.ValueStringPointer(),
-			ImageName:    machine.ImageName.ValueStringPointer(),
 			ImageVersion: machine.ImageVersion.ValueStringPointer(),
 		},
 		MaxSurge:   maxSurge,
@@ -153,7 +156,7 @@ func workerToCreateWorker(ctx context.Context, worker resource_gardener_shoot.Wo
 	for i, taint := range *edit.Taints {
 		createTaints[i] = api.GardenerCreateShootNodeTaint{
 			Key:    taint.Key,
-			Value:  *taint.Value,
+			Value:  taint.Value,
 			Effect: taint.Effect,
 		}
 	}
@@ -167,7 +170,7 @@ func workerToCreateWorker(ctx context.Context, worker resource_gardener_shoot.Wo
 		Maximum:     edit.Maximum,
 		Minimum:     edit.Minimum,
 		Taints:      &createTaints,
-		VolumeSize:  *edit.VolumeSize,
+		VolumeSize:  edit.VolumeSize,
 		Zones:       edit.Zones,
 	}, true
 }
