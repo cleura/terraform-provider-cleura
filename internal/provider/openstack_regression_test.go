@@ -72,22 +72,62 @@ func TestProjectExistsProbesTheDomainsOwnRegion(t *testing.T) {
 	}
 }
 
-func TestDomainRegionTagFallsBackToProviderRegion(t *testing.T) {
+// TestDomainRegionTagFailsRatherThanGuessing pins that an unresolvable domain
+// is an error, not the provider's region. Guessing looks harmless but feeds
+// projectExists a region the domain may not serve; the resulting 404 reads as
+// "the project is gone", the resource is dropped from state, and the next
+// apply creates a second project that can never be deleted.
+func TestDomainRegionTagFailsRatherThanGuessing(t *testing.T) {
 	var probed []string
 	cfg := newTestConfig(t, twoDomainMux(&probed))
 	cfg.Region = "Sto2"
 
-	// Unknown domain: nothing better than the provider's region is known.
-	if got := domainRegionTag(context.Background(), cfg, "dom-nope"); got != "Sto2" {
-		t.Errorf("unknown domain: got %q, want Sto2", got)
+	if got, err := domainRegionTag(context.Background(), cfg, "dom-nope"); err == nil {
+		t.Errorf("an unknown domain returned %q, want an error", got)
 	}
-	// Domain listing unavailable: still the provider's region, never empty.
+
 	broken := newTestConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 500, "Internal Server Error")
 	}))
 	broken.Region = "Kna1"
-	if got := domainRegionTag(context.Background(), broken, "dom-sto"); got != "Kna1" {
-		t.Errorf("listing failure: got %q, want Kna1", got)
+	if got, err := domainRegionTag(context.Background(), broken, "dom-sto"); err == nil {
+		t.Errorf("an unavailable domain listing returned %q, want an error", got)
+	}
+
+	// The resolvable cases still answer, and answer with the domain's region.
+	if got, err := domainRegionTag(context.Background(), cfg, "dom-fra"); err != nil || got != "Fra1" {
+		t.Errorf("dom-fra = %q, %v; want Fra1 and no error", got, err)
+	}
+}
+
+// TestProjectExistsRefusesToGuessARegion covers the conjunction that makes the
+// guess dangerous: a project outside the provider's region, invisible in the
+// caller's listing, while the domain listing is down. projectExists must
+// report an error so Read keeps the project in state, rather than answering
+// "gone" and letting Terraform create a duplicate.
+func TestProjectExistsRefusesToGuessARegion(t *testing.T) {
+	var probed []string
+	quotaOnly := http.NewServeMux()
+	quotaOnly.HandleFunc("GET /openstack/identity/v2/domains", func(w http.ResponseWriter, r *http.Request) {
+		apiError(w, 500, "Internal Server Error")
+	})
+	quotaOnly.HandleFunc("GET /openstack/identity/v2/domains/{domain}/projects/{project}/quotas/{region}", func(w http.ResponseWriter, r *http.Request) {
+		probed = append(probed, r.PathValue("region"))
+		// dom-fra serves Fra1 only, so a probe on the provider's Sto2 404s.
+		apiError(w, 404, "Not Found: Project not found")
+	})
+	cfg := newTestConfig(t, quotaOnly)
+	cfg.Region = "Sto2"
+
+	exists, err := projectExists(context.Background(), cfg, "dom-fra", "live-project")
+	if err == nil {
+		t.Fatalf("projectExists returned (%v, nil); a live project would have been dropped from state", exists)
+	}
+	if exists {
+		t.Error("projectExists should not claim existence when it could not probe")
+	}
+	if len(probed) != 0 {
+		t.Errorf("the quota endpoint was probed with a guessed region %v; it should not have been called at all", probed)
 	}
 }
 

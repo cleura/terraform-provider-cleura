@@ -224,13 +224,18 @@ func describeDomains(domains []api.CommonOpenStackDomain) string {
 }
 
 // domainRegionTag returns a region tag the given domain serves, for the
-// region-scoped endpoints that must be addressed within a domain. It falls back
-// to the provider's region when the domain cannot be looked up, which is the
-// right answer for the common single-domain-per-region account.
-func domainRegionTag(ctx context.Context, cfg *ProviderConfig, domainID string) string {
+// region-scoped endpoints that must be addressed within a domain.
+//
+// It deliberately fails rather than guessing. Its caller, projectExists, reads
+// a 404 as "this project is gone" and its caller in turn drops the resource
+// from state — after which the next apply creates a second project that can
+// never be deleted. Guessing the provider's region for a domain that does not
+// serve it produces exactly that 404, so an unresolvable domain has to surface
+// as an error and leave the state alone.
+func domainRegionTag(ctx context.Context, cfg *ProviderConfig, domainID string) (string, error) {
 	domains, err := listDomains(ctx, cfg)
 	if err != nil {
-		return cfg.Region
+		return "", fmt.Errorf("listing OpenStack domains to find a region for domain %s: %w", domainID, err)
 	}
 	for _, d := range domains {
 		if d.Id != domainID {
@@ -240,14 +245,15 @@ func domainRegionTag(ctx context.Context, cfg *ProviderConfig, domainID string) 
 		// stays on the region the rest of the run uses.
 		for _, r := range d.Area.Regions {
 			if strings.EqualFold(r.Tag, cfg.Region) {
-				return r.Tag
+				return r.Tag, nil
 			}
 		}
 		if len(d.Area.Regions) > 0 {
-			return d.Area.Regions[0].Tag
+			return d.Area.Regions[0].Tag, nil
 		}
+		return "", fmt.Errorf("OpenStack domain %s serves no regions", domainID)
 	}
-	return cfg.Region
+	return "", fmt.Errorf("OpenStack domain %s was not found in the account's domains", domainID)
 }
 
 // resolveDomainID returns the OpenStack domain to operate in: the explicit
@@ -344,7 +350,10 @@ func projectExists(ctx context.Context, cfg *ProviderConfig, domainID, id string
 	// necessarily the provider's region. Probing with a foreign region tag
 	// would answer 404 and the caller would wrongly drop a live project from
 	// state, so Terraform would create a second one (irreversibly).
-	region := domainRegionTag(ctx, cfg, domainID)
+	region, err := domainRegionTag(ctx, cfg, domainID)
+	if err != nil {
+		return false, fmt.Errorf("checking OpenStack project %s: %w", id, err)
+	}
 	resp, err := cfg.Client.OpenStackIdentityGetProjectQuota(ctx, domainID, id, region)
 	if err != nil {
 		return false, fmt.Errorf("checking OpenStack project %s: %w", id, err)
