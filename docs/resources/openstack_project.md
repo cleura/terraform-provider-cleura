@@ -102,7 +102,7 @@ terraform import cleura_openstack_project.example 8a22c50af68e45c6b4dd7722cce8f9
 
 ### Optional
 
-- `description` (String) Free-text description. Removing it from the configuration clears it on the project. Updated in place.
+- `description` (String) Free-text description. Removing it from the configuration clears it on the project. Updated in place. The API accepts only letters, numbers, spaces and the punctuation `. , _ : / -` — other characters are rejected at apply time.
 - `domain_id` (String) OpenStack domain the project is created in. Defaults to the account's domain that serves the provider's `region` (or the account's only domain). Set it explicitly when the account has several domains for the region; list them with `cleura openstack domain list`. Changing it forces a new project.
 - `enabled` (Boolean) Whether the project is enabled. Defaults to `true`. A disabled project keeps its resources but cannot be used. Updated in place; destroying the resource sets this to `false`.
 

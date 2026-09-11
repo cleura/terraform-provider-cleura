@@ -164,6 +164,32 @@ func TestOpenStackSchemasAreValid(t *testing.T) {
 	}
 }
 
+// TestAPIErrorDetailIncludesPerFieldErrors pins that a validation failure says
+// which property was rejected. The API answers an invalid description with a
+// generic "One or more properties are invalid" plus an errors array naming the
+// field and the rule; without the array the user is left guessing.
+func TestAPIErrorDetailIncludesPerFieldErrors(t *testing.T) {
+	body := []byte(`{"error":{"code":400,"message":"One or more properties are invalid",` +
+		`"errors":[{"key":"description","value":"Value can only contain letters, numbers, spaces, and common punctuation (. , _ : / -)."}]}}`)
+
+	detail := apiErrorDetail(400, body)
+	for _, want := range []string{
+		"One or more properties are invalid (HTTP 400)",
+		"description:",
+		"common punctuation",
+	} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("detail %q does not mention %q", detail, want)
+		}
+	}
+
+	// An envelope without the array still renders, unchanged.
+	plain := apiErrorDetail(404, []byte(`{"error":{"code":404,"message":"Not Found"}}`))
+	if plain != "Not Found (HTTP 404)" {
+		t.Errorf("plain envelope = %q, want %q", plain, "Not Found (HTTP 404)")
+	}
+}
+
 func TestRoleIDsByName(t *testing.T) {
 	byName := map[string]string{"member": "id-member", "swiftoperator": "id-swift"}
 	ids, err := roleIDsByName(byName, []string{"swiftoperator", "member"})

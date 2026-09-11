@@ -105,7 +105,8 @@ func (r *openstackUserResource) Schema(_ context.Context, _ resource.SchemaReque
 			"description": schema.StringAttribute{
 				Optional: true,
 				MarkdownDescription: "Free-text description. Removing it from the configuration clears it on the " +
-					"user. Updated in place.",
+					"user. Updated in place. The API accepts only letters, numbers, spaces and the punctuation " +
+					"`. , _ : / -` — other characters are rejected at apply time.",
 				Validators: []validator.String{stringvalidator.LengthAtLeast(1)},
 			},
 			"enabled": schema.BoolAttribute{

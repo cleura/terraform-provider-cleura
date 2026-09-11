@@ -40,7 +40,16 @@ func apiErrorDetail(status int, body []byte) string {
 func apiErrorDetailRedacting(status int, body []byte, secret string) string {
 	var envelope api.FrameworkHttpErrorResponse
 	if json.Unmarshal(body, &envelope) == nil && envelope.Error.Message != "" {
-		return redactSecret(fmt.Sprintf("%s (HTTP %d)", envelope.Error.Message, status), secret)
+		detail := fmt.Sprintf("%s (HTTP %d)", envelope.Error.Message, status)
+		// The envelope's per-field errors say which property was rejected and
+		// why. Without them a validation failure reads only as "One or more
+		// properties are invalid", leaving the user to guess.
+		if envelope.Error.Errors != nil {
+			for _, e := range *envelope.Error.Errors {
+				detail += fmt.Sprintf("\n  %s: %s", e.Key, e.Value)
+			}
+		}
+		return redactSecret(detail, secret)
 	}
 	if b := strings.TrimSpace(string(body)); b != "" {
 		if secret != "" {

@@ -109,7 +109,7 @@ terraform import cleura_openstack_user.ci 6f1c0e6f2b1d4c0aa1b2c3d4e5f60718
 
 ### Optional
 
-- `description` (String) Free-text description. Removing it from the configuration clears it on the user. Updated in place.
+- `description` (String) Free-text description. Removing it from the configuration clears it on the user. Updated in place. The API accepts only letters, numbers, spaces and the punctuation `. , _ : / -` — other characters are rejected at apply time.
 - `domain_id` (String) OpenStack domain the user is created in. Defaults to the account's domain that serves the provider's `region` (or the account's only domain). Set it explicitly when the account has several domains for the region; list them with `cleura openstack domain list`. Changing it forces a new user.
 - `enabled` (Boolean) Whether the user can log in. Defaults to `true`. Updated in place.
 - `password_wo_version` (String) Arbitrary version marker for the write-only `password`. Because the password is not stored in state, Terraform cannot detect that it changed; bump this value (e.g. `"2"`) to re-send the current `password` on the next apply.

@@ -92,7 +92,8 @@ func (r *openstackProjectResource) Schema(_ context.Context, _ resource.SchemaRe
 			"description": schema.StringAttribute{
 				Optional: true,
 				MarkdownDescription: "Free-text description. Removing it from the configuration clears it on the " +
-					"project. Updated in place.",
+					"project. Updated in place. The API accepts only letters, numbers, spaces and the punctuation " +
+					"`. , _ : / -` — other characters are rejected at apply time.",
 				Validators: []validator.String{stringvalidator.LengthAtLeast(1)},
 			},
 			"enabled": schema.BoolAttribute{
