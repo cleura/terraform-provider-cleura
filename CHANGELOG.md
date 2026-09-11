@@ -1,5 +1,44 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`cleura_openstack_project` resource** to create and manage OpenStack (Keystone)
+  projects: name, description, and enabled state, in the domain serving the
+  provider's region (or an explicit `domain_id`). Destroying the resource
+  disables the project, because the Cleura API has no project deletion.
+- **`cleura_openstack_user` resource** to create and manage OpenStack users with a
+  write-only password (Terraform 1.11+), description, and enabled state.
+- **`cleura_openstack_role_assignment` resource** to grant a user roles on a
+  project by role name, managing all of the user's roles on that project.
+- **`cleura_openstack_project` and `cleura_openstack_user` data sources** to fetch a
+  project or user by ID or name.
+- **`cleura_gardener_bootstrap` resource** to prepare an OpenStack project for
+  Gardener, which a project must be before a shoot can be created in it. Its
+  `project_id` defaults to the provider's but can be set per resource, so a
+  project created by `cleura_openstack_project` in the same configuration can be
+  bootstrapped without the dependency cycle a provider-level `project_id` would
+  cause. The API offers only `POST .../bootstrap`, so the resource cannot read
+  bootstrap state or undo it: it warns at plan time that bootstrapping is
+  irreversible, and destroying it removes it from state while the project stays
+  bootstrapped.
+
+### Changed
+
+- Write-only passwords are now stripped from API error messages. The Cleura API
+  echoes request fields in some validation errors, which could have put a
+  `cleura_openstack_user` password into console output and CI logs even though it
+  never reaches Terraform state.
+
+### Deprecated
+
+- **`cleura_project` data source**, superseded by `cleura_openstack_project`,
+  which does the same name lookup and additionally accepts an `id` and returns
+  the project's `domain_id`, `description`, and `enabled` state. Migrating is a
+  rename; the `name` argument and `id` attribute are unchanged. `cleura_project`
+  keeps working and is not scheduled for removal in this major version.
+
 ## v0.2.0
 
 This release adds authentication through the cleura CLI, moves the provider onto
