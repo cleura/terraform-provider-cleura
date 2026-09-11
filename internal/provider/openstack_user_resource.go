@@ -152,12 +152,12 @@ func (r *openstackUserResource) Create(ctx context.Context, req resource.CreateR
 	}
 	response, err := r.config.Client.OpenStackIdentityCreateUser(ctx, domainID, body)
 	if err != nil {
-		resp.Diagnostics.AddError("Failed to create OpenStack user", err.Error())
+		resp.Diagnostics.AddError("Failed to create OpenStack user", redactSecret(err.Error(), body.Password))
 		return
 	}
 	var created api.OpenStackIdentityUserWithProjectsAccess
 	if err := decodeJSON(response, &created); err != nil {
-		resp.Diagnostics.AddError("Failed to create OpenStack user", err.Error())
+		resp.Diagnostics.AddError("Failed to create OpenStack user", redactSecret(err.Error(), body.Password))
 		return
 	}
 
@@ -283,7 +283,7 @@ func (r *openstackUserResource) Update(ctx context.Context, req resource.UpdateR
 
 	user, err := r.edit(ctx, domainID, state.ID.ValueString(), body)
 	if err != nil {
-		resp.Diagnostics.AddError("Failed to update OpenStack user", err.Error())
+		resp.Diagnostics.AddError("Failed to update OpenStack user", redactSecret(err.Error(), config.Password.ValueString()))
 		return
 	}
 	setOpenStackUserState(&plan, user)

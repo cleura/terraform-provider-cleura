@@ -39,6 +39,18 @@ func apiErrorDetail(status int, body []byte) string {
 	return fmt.Sprintf("HTTP %d", status)
 }
 
+// redactSecret removes a write-only secret from text that is on its way to a
+// diagnostic. API errors are surfaced with their response body attached, and
+// some APIs echo the rejected request fields back; a password that Terraform
+// keeps out of state must not reach the console or a CI log either. The length
+// guard keeps a short or empty value from matching unrelated text.
+func redactSecret(text, secret string) string {
+	if len(secret) < 8 {
+		return text
+	}
+	return strings.ReplaceAll(text, secret, "(redacted)")
+}
+
 // decodeJSON drains a response and decodes a 2xx body into out (nil to
 // discard). A non-2xx status is returned as an error carrying the API's
 // message; a 404 wraps errNotFound.
