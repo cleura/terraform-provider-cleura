@@ -22,7 +22,15 @@ repository. Real-world reports directly shape what we build next.
 - `cleura_gardener_shoot` — Gardener-based Kubernetes clusters (worker groups, maintenance
   windows, hibernation schedules, allowed login CIDRs, and Calico/Cilium networking)
 - `cleura_gardener_shoot_kubeconfig` — short-lived admin kubeconfigs
-- `cleura_project` (data source) — look up Cleura projects
+- `cleura_gardener_bootstrap` — prepares an OpenStack project for Gardener, which it must be
+  before a shoot can be created in it
+- `cleura_openstack_project` — OpenStack projects (name, description, enabled state)
+- `cleura_openstack_user` — OpenStack users with write-only passwords
+- `cleura_openstack_role_assignment` — a user's roles on a project (see the
+  [OpenStack projects, users and domains](docs/guides/openstack-identity.md) guide)
+- `cleura_openstack_project`, `cleura_openstack_user` (data sources) — look up projects and
+  users. The older `cleura_project` data source is deprecated in favour of
+  `cleura_openstack_project`
 
 The provider's datamodels and scaffolding are generated from the Cleura OpenAPI spec using the
 [Terraform Provider Code Generation](https://github.com/hashicorp/terraform-plugin-codegen-openapi)
