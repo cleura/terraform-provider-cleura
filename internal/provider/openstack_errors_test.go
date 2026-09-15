@@ -153,7 +153,7 @@ resource "cleura_openstack_user" "u" {
   password            = "short"
   password_wo_version = "1"
 }
-`, regexp.MustCompile(`(?s)at least 8`))
+`, regexp.MustCompile(`(?s)between 8 and 1024`))
 
 	// Project names allow spaces and Swedish letters, but not slashes.
 	errorCase(t, "project_name_invalid", `

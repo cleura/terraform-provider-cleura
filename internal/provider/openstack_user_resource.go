@@ -92,9 +92,12 @@ func (r *openstackUserResource) Schema(_ context.Context, _ resource.SchemaReque
 				Required:  true,
 				Sensitive: true,
 				WriteOnly: true,
-				MarkdownDescription: "Password for the user, at least 8 characters. Write-only: sent to the API on " +
-					"create and whenever `password_wo_version` changes, never stored in state. Requires Terraform 1.11+.",
-				Validators: []validator.String{stringvalidator.LengthAtLeast(8)},
+				MarkdownDescription: "Password for the user, 8 to 1024 characters. Write-only: sent to the API on " +
+					"create and whenever `password_wo_version` changes, never stored in state. Requires Terraform 1.11+.\n\n" +
+					"The API accepts letters, numbers and the special characters ``@#!£&?<>;:.-[](){}+%\"'=^*$`` and " +
+					"space. Note that `/` is **not** accepted, so a password from `openssl rand -base64` is rejected " +
+					"at apply time; use `openssl rand -hex` or a generator restricted to the set above.",
+				Validators: []validator.String{stringvalidator.LengthBetween(8, 1024)},
 			},
 			"password_wo_version": schema.StringAttribute{
 				Optional: true,

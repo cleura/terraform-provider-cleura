@@ -105,7 +105,9 @@ terraform import cleura_openstack_user.ci 6f1c0e6f2b1d4c0aa1b2c3d4e5f60718
 > **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
 
 - `name` (String) User name: 3 to 40 characters of lowercase letters, digits, and `_ . -`. Must be unique within the domain. Updated in place.
-- `password` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Password for the user, at least 8 characters. Write-only: sent to the API on create and whenever `password_wo_version` changes, never stored in state. Requires Terraform 1.11+.
+- `password` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Password for the user, 8 to 1024 characters. Write-only: sent to the API on create and whenever `password_wo_version` changes, never stored in state. Requires Terraform 1.11+.
+
+The API accepts letters, numbers and the special characters ``@#!£&?<>;:.-[](){}+%"'=^*$`` and space. Note that `/` is **not** accepted, so a password from `openssl rand -base64` is rejected at apply time; use `openssl rand -hex` or a generator restricted to the set above.
 
 ### Optional
 
