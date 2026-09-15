@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,5 +159,51 @@ func TestTaintValueIsStillRequiredInTheSchema(t *testing.T) {
 	if !attr.IsRequired() {
 		t.Error("taint value is no longer Required: optionalTaintValue should map a missing value to null, " +
 			"and the gardener_shoot docs note about writing value = \"\" is now wrong")
+	}
+}
+
+// TestRotationWarningDistinguishesRenewalFromExpiry pins the summary a user
+// reads first. Rotating inside renew_before_expiry_seconds happens while the
+// credential is still valid, so reporting it as expired sends the user
+// chasing a broken cluster credential that in fact still works.
+func TestRotationWarningDistinguishesRenewalFromExpiry(t *testing.T) {
+	expiry := time.Date(2026, 9, 15, 9, 31, 28, 0, time.UTC)
+
+	for _, tc := range []struct {
+		name        string
+		now         time.Time
+		wantSummary string
+		wantIn      string
+		wantNotIn   string
+	}{
+		{
+			// The live case: renew_before_expiry_seconds = 60 fires 38s early.
+			name:        "inside the renewal window the credential has not expired",
+			now:         expiry.Add(-38 * time.Second),
+			wantSummary: "Kubeconfig is due for renewal",
+			wantIn:      "stays valid until then",
+			wantNotIn:   "expired at",
+		},
+		{
+			// The default, renew_before_expiry_seconds = 0.
+			name:        "past expiry it really has expired",
+			now:         expiry.Add(time.Second),
+			wantSummary: "Kubeconfig expired",
+			wantIn:      "expired at 2026-09-15T09:31:28Z",
+			wantNotIn:   "stays valid",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			summary, detail := rotationWarning(tc.now, expiry)
+			if summary != tc.wantSummary {
+				t.Errorf("summary = %q, want %q", summary, tc.wantSummary)
+			}
+			if !strings.Contains(detail, tc.wantIn) {
+				t.Errorf("detail %q does not contain %q", detail, tc.wantIn)
+			}
+			if strings.Contains(detail, tc.wantNotIn) {
+				t.Errorf("detail %q must not contain %q", detail, tc.wantNotIn)
+			}
+		})
 	}
 }

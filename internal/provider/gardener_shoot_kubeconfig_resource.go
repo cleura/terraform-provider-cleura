@@ -161,18 +161,30 @@ func (r *shootKubeconfigResource) ModifyPlan(ctx context.Context, req resource.M
 		}
 	} else {
 		renewAt := expiry.Add(-time.Duration(plan.RenewBeforeExpirySeconds.ValueInt64()) * time.Second)
-		if time.Now().After(renewAt) {
+		if now := time.Now(); now.After(renewAt) {
 			plan.Kubeconfig = types.StringUnknown()
 			plan.ExpiresAt = types.StringUnknown()
 			plan.LastApplied = types.StringUnknown()
 			resp.RequiresReplace = append(resp.RequiresReplace, path.Root(attr))
-			resp.Diagnostics.AddWarning("Kubeconfig expired",
-				fmt.Sprintf("The kubeconfig expires at %s and its renewal window has been reached; the resource will be recreated to issue a new one.",
-					expiry.Format(time.RFC3339)))
+			resp.Diagnostics.AddWarning(rotationWarning(now, expiry))
 		}
 	}
 
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+}
+
+// rotationWarning explains why a kubeconfig is being replaced.
+// renew_before_expiry_seconds rotates the credential *before* it expires, so
+// the summary must not report an expiry that has not happened yet — with the
+// default of 0 it has, and the two cases read differently to the user.
+func rotationWarning(now, expiry time.Time) (summary, detail string) {
+	if now.Before(expiry) {
+		return "Kubeconfig is due for renewal", fmt.Sprintf(
+			"The kubeconfig expires at %s and its renewal window has been reached; the resource will be recreated "+
+				"to issue a new one. The current one stays valid until then.", expiry.Format(time.RFC3339))
+	}
+	return "Kubeconfig expired", fmt.Sprintf(
+		"The kubeconfig expired at %s; the resource will be recreated to issue a new one.", expiry.Format(time.RFC3339))
 }
 
 func (r *shootKubeconfigResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
