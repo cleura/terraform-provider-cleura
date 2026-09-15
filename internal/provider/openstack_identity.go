@@ -67,6 +67,13 @@ func apiErrorDetailRedacting(status int, body []byte, secret string) string {
 // some APIs echo the rejected request fields back; a password that Terraform
 // keeps out of state must not reach the console or a CI log either.
 //
+// API WORKAROUND: the Cleura API echoes rejected request fields back in some
+// validation errors, so a create that fails can carry the user's password out
+// in its response body. This function and the withhold-on-unparseable rule in
+// apiErrorDetailRedacting exist only for that; both can go if the API stops
+// echoing request values. See item 28 in
+// .agent/cleura-api-wishlist-openstack-identity.md.
+//
 // The secret is matched in every encoding it might have picked up on the way
 // back: a JSON body escapes it before we ever see it, so a password holding
 // "&", "<", ">", a quote or a backslash does not appear literally. Go escapes

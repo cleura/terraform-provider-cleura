@@ -208,7 +208,8 @@ func (r *openstackProjectResource) Create(ctx context.Context, req resource.Crea
 	}
 
 	// API WORKAROUND: the create call cannot set enabled, so a project planned
-	// as disabled needs a follow-up edit.
+	// as disabled needs a follow-up edit. See item 29 in
+	// .agent/cleura-api-wishlist-openstack-identity.md.
 	if !wantEnabled {
 		disabled := false
 		updated, err := r.edit(ctx, domainID, project.Id, api.OpenStackIdentityEditProjectRequest{Enabled: &disabled})
@@ -335,8 +336,16 @@ func (r *openstackProjectResource) Update(ctx context.Context, req resource.Upda
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
-// Delete disables the project. Not a workaround: Cleura projects cannot be
-// deleted by design, and disabling is the intended substitute.
+// Delete disables the project. Not a workaround in the usual sense: Cleura
+// projects cannot be deleted by design, and disabling is the intended
+// substitute — there is no API defect here to code around.
+//
+// API WORKAROUND: marked all the same so this is found when the API evolves.
+// Item 17 in .agent/cleura-api-wishlist-openstack-identity.md asks for the
+// quota consequence to change (a disabled project still counts against the
+// account's project quota, so every create/destroy cycle spends one
+// permanently). If a purge or quota exemption ever lands, this Delete and the
+// warning it emits are what need revisiting.
 func (r *openstackProjectResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	if !require(r.config, &resp.Diagnostics, false) {
 		return
