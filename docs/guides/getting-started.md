@@ -110,19 +110,24 @@ the ID is the CLI you just installed:
 cleura openstack project list   # projects you can access, with their IDs
 ```
 
-Or discover it from Terraform with the `cleura_project` data source, which needs
-only `cloud` + `region` (not `project_id`). Add this to a scratch configuration,
-run `terraform apply`, then copy the ID into the provider block above:
+Or discover it from Terraform with the `cleura_openstack_project` data source,
+which needs only `cloud` + `region` (not `project_id`). Add this to a scratch
+configuration, run `terraform apply`, then copy the ID into the provider block
+above:
 
 ```terraform
-data "cleura_project" "this" {
+data "cleura_openstack_project" "this" {
   name = "my-project"
 }
 
 output "project_id" {
-  value = data.cleura_project.this.id
+  value = data.cleura_openstack_project.this.id
 }
 ```
+
+~> The older `cleura_project` data source does the same lookup and still works,
+but it is deprecated. Prefer `cleura_openstack_project`, which also accepts an
+`id` and returns the project's domain, description and enabled state.
 
 Do not wire the data source's `id` directly into the provider block — provider
 configuration is resolved before data sources are read, so that would create a

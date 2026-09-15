@@ -4,6 +4,22 @@
 
 ### Added
 
+- **`cleura_openstack_project` resource** to create and manage OpenStack (Keystone)
+  projects: name, description, and enabled state, in the domain serving the
+  provider's region (or an explicit `domain_id`). Destroying the resource
+  disables the project, because the Cleura API has no project deletion.
+- **`cleura_openstack_user` resource** to create and manage OpenStack users with a
+  write-only password (Terraform 1.11+), description, and enabled state.
+- **`cleura_openstack_role_assignment` resource** to grant a user roles on a
+  project by role name, managing all of the user's roles on that project.
+- **`cleura_openstack_project` and `cleura_openstack_user` data sources** to fetch a
+  project or user by ID or name.
+- **`cleura_gardener_shoot` now prepares its project for Gardener itself.** A
+  project must be bootstrapped before it can hold a shoot; creating a shoot now
+  does that first, so a project created by `cleura_openstack_project` in the same
+  configuration works with no extra step. The API has no way to report whether a
+  project is already prepared, so the call is made on every create — measured
+  live, repeating it on an already-prepared project is a no-op.
 - **`expires_at` on `cleura_gardener_shoot_kubeconfig`.** The API now returns the
   expiry it granted, so rotation is driven by that instead of an estimate. The
   provider used to stamp the local mint time into `last_applied` and add the
@@ -12,6 +28,10 @@
 
 ### Changed
 
+- Write-only passwords are now stripped from API error messages. The Cleura API
+  echoes request fields in some validation errors, which could have put a
+  `cleura_openstack_user` password into console output and CI logs even though it
+  never reaches Terraform state.
 - Upgraded to `cleura-client-go` v0.3.0.
 - **Worker taint values may be omitted by the API.** A taint with only a key and
   an effect is valid in Kubernetes, and the API now models that as a missing
@@ -22,6 +42,11 @@
 
 ### Deprecated
 
+- **`cleura_project` data source**, superseded by `cleura_openstack_project`,
+  which does the same name lookup and additionally accepts an `id` and returns
+  the project's `domain_id`, `description`, and `enabled` state. Migrating is a
+  rename; the `name` argument and `id` attribute are unchanged. `cleura_project`
+  keeps working and is not scheduled for removal in this major version.
 - **`last_applied` on `cleura_gardener_shoot_kubeconfig`**, superseded by
   `expires_at`. It is still written, and resources whose state predates
   `expires_at` keep using it to estimate expiry, so upgrading does not rotate

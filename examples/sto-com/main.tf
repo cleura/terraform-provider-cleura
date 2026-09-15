@@ -9,7 +9,7 @@ terraform {
 
 variable "project_id" {
   type        = string
-  description = "OpenStack project ID. Look up with the cleura_project data source in a bootstrap step, or from the Cleura console."
+  description = "OpenStack project ID. Look up with the cleura_openstack_project data source in a bootstrap step, or from the Cleura console."
 }
 
 provider "cleura" {
@@ -19,7 +19,7 @@ provider "cleura" {
 }
 
 # Optional: verify project_id matches a project name in the provider region.
-data "cleura_project" "example" {
+data "cleura_openstack_project" "example" {
   name = "some-project"
 }
 
@@ -68,6 +68,6 @@ output "admin_kubeconfig" {
 }
 
 output "resolved_project_id" {
-  value       = data.cleura_project.example.id
+  value       = data.cleura_openstack_project.example.id
   description = "Project ID from name lookup; should match var.project_id."
 }

@@ -83,11 +83,11 @@ walks for that value.
 | `CLEURA_API_USERNAME` | `username`           | config → env → CLI             |
 | `CLEURA_API_TOKEN`    | `token` (sensitive)  | config → env → CLI             |
 | `CLEURA_CLOUD`        | `cloud`              | config → env → CLI             |
-| `CLEURA_API_URL`      | `url`                | config → env → CLI &nbsp;¹     |
+| `CLEURA_API_URL`      | `url`                | config → env → CLI             |
 | `CLEURA_REGION`       | `region`             | config → env &nbsp;(never CLI) |
 | `CLEURA_PROJECT_ID`   | `project_id`         | config → env &nbsp;(never CLI) |
 
-¹ `url` is only adopted from the CLI's stored endpoint when `cloud` was **not** set
+`url` is only adopted from the CLI's stored endpoint when `cloud` was **not** set
 explicitly. When `cloud` is set, that cloud's built-in default URL applies instead.
 Defaults exist for `public` and `compliant` only; **private clouds must set `url`**
 (or `CLEURA_API_URL`).

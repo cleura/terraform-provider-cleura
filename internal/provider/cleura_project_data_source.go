@@ -37,7 +37,14 @@ func (d *projectDataSource) Metadata(ctx context.Context, req datasource.Metadat
 
 func (d *projectDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Look up an OpenStack project by name within the provider's configured region and return its ID for use as project_id.",
+		// Superseded by cleura_openstack_project, which looks a project up by
+		// id or name and also returns its domain, description and enabled
+		// state. Kept working because it shipped in v0.1.0.
+		DeprecationMessage: "The cleura_project data source is deprecated: use cleura_openstack_project instead, " +
+			"which resolves a project by name or id and returns its domain, description and enabled state as well. " +
+			"Replace `data \"cleura_project\" \"x\"` with `data \"cleura_openstack_project\" \"x\"`; the name " +
+			"argument and the id attribute are unchanged.",
+		Description: "Deprecated: use cleura_openstack_project instead. Look up an OpenStack project by name within the provider's configured region and return its ID for use as project_id.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,

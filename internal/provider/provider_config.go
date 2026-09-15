@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -18,6 +19,55 @@ type ProviderConfig struct {
 	Cloud     string
 	Region    string
 	ProjectID string
+
+	// OpenStack domain serving Region, resolved lazily by regionDomainID and
+	// cached for the life of the provider configuration so that each OpenStack
+	// identity resource does not re-list the account's domains on every call.
+	domainMu sync.Mutex
+	domainID string
+
+	// Assignable OpenStack roles per domain (name -> id), cached the same way.
+	rolesMu sync.Mutex
+	roles   map[string]map[string]string
+}
+
+// domainRoles returns the assignable roles of an OpenStack domain as a
+// name -> id map, fetched once per domain.
+func (c *ProviderConfig) domainRoles(ctx context.Context, domainID string) (map[string]string, error) {
+	c.rolesMu.Lock()
+	defer c.rolesMu.Unlock()
+	if byName, ok := c.roles[domainID]; ok {
+		return byName, nil
+	}
+	byName, err := listRoles(ctx, c, domainID)
+	if err != nil {
+		return nil, err
+	}
+	if c.roles == nil {
+		c.roles = map[string]map[string]string{}
+	}
+	c.roles[domainID] = byName
+	return byName, nil
+}
+
+// regionDomainID resolves (once) the OpenStack domain that serves the
+// provider's region. See domainForRegion for the selection rules.
+func (c *ProviderConfig) regionDomainID(ctx context.Context) (string, error) {
+	c.domainMu.Lock()
+	defer c.domainMu.Unlock()
+	if c.domainID != "" {
+		return c.domainID, nil
+	}
+	domains, err := listDomains(ctx, c)
+	if err != nil {
+		return "", err
+	}
+	id, err := domainForRegion(domains, c.Region)
+	if err != nil {
+		return "", err
+	}
+	c.domainID = id
+	return id, nil
 }
 
 func fromResource(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) *ProviderConfig {

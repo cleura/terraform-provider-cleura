@@ -23,8 +23,10 @@ func WorkersListToMap(workers []resource_gardener_shoot.WorkersValue) map[string
 }
 
 // workerUpdateBodyWithExplicitEmptyArrays marshals the worker to JSON and ensures
-// labels, annotations, and taints are explicitly [] when empty (omitempty may omit them,
-// but the API requires empty array to remove existing values).
+// labels, annotations, and taints are explicitly [] when empty.
+//
+// API WORKAROUND: the PATCH treats an omitted array as "unchanged" and only an
+// explicit [] clears it, while omitempty would drop the empty arrays.
 func workerUpdateBodyWithExplicitEmptyArrays(body api.GardenerEditShootWorker) ([]byte, error) {
 	b, err := json.Marshal(body)
 	if err != nil {
