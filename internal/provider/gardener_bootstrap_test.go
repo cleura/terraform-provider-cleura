@@ -2,30 +2,10 @@ package provider
 
 import (
 	"context"
-	"fmt"
-	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
-
-	fwresource "github.com/hashicorp/terraform-plugin-framework/resource"
-	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
-	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
-
-func TestGardenerBootstrapSchemaIsValid(t *testing.T) {
-	ctx := context.Background()
-	var resp fwresource.SchemaResponse
-	NewGardenerBootstrapResource().Schema(ctx, fwresource.SchemaRequest{}, &resp)
-	if diags := resp.Schema.ValidateImplementation(ctx); diags.HasError() {
-		t.Errorf("schema is invalid: %v", diags)
-	}
-}
-
-func TestBootstrapID(t *testing.T) {
-	if got, want := bootstrapID("public", "Sto2", "abc"), "public/Sto2/abc"; got != want {
-		t.Errorf("bootstrapID() = %q, want %q", got, want)
-	}
-}
 
 // TestBootstrapErrorDetail pins the guidance added to the API's opaque 500.
 // An unknown project id is answered with 500 rather than 404 live, so the
@@ -48,207 +28,45 @@ func TestBootstrapErrorDetail(t *testing.T) {
 	}
 }
 
-func bootstrapTestServer(t *testing.T, mock *mockIdentity) {
-	t.Helper()
-	srv := httptest.NewServer(mock.handler())
-	t.Cleanup(srv.Close)
-	t.Setenv("CLEURA_API_URL", srv.URL)
-	t.Setenv("CLEURA_API_USERNAME", mock.username)
-	t.Setenv("CLEURA_API_TOKEN", mock.token)
-	t.Setenv("CLEURA_PROJECT_ID", "")
-}
-
-// TestGardenerBootstrapLifecycle covers the shape the API forces on this
-// resource: one POST at create, nothing on refresh, nothing on destroy. It
-// also covers the flow the resource exists for — bootstrapping a project
-// created in the same configuration, which the provider's own project_id
-// cannot express without a dependency cycle.
-func TestGardenerBootstrapLifecycle(t *testing.T) {
+// TestEnsureBootstrapped covers the call every shoot create now makes. The API
+// has no way to report whether a project is already prepared, so the provider
+// repeats the call and relies on it being a no-op the second time.
+func TestEnsureBootstrapped(t *testing.T) {
 	mock := newMockIdentity()
-	bootstrapTestServer(t, mock)
+	cfg := newMockConfig(t, mock)
+	cfg.ProjectID = mock.addProject("tfboot-target")
 
-	config := `
-provider "cleura" {
-  cloud   = "public"
-  region  = "Sto2"
-  use_cli = false
-}
-
-resource "cleura_openstack_project" "new" {
-  name = "tfboot-project"
-}
-
-resource "cleura_gardener_bootstrap" "new" {
-  project_id = cleura_openstack_project.new.id
-}`
-
-	projectWasBootstrapped := func(*terraform.State) error {
-		p := mock.projectByName("tfboot-project")
-		if p == nil {
-			return fmt.Errorf("project missing from the mock API")
+	for i := 1; i <= 3; i++ {
+		if diags := ensureBootstrapped(context.Background(), cfg); diags.HasError() {
+			t.Fatalf("call %d failed: %v", i, diags.Errors())
 		}
-		mock.mu.Lock()
-		defer mock.mu.Unlock()
-		if !mock.bootstrapped[p.Id] {
-			return fmt.Errorf("project %s was never bootstrapped", p.Id)
-		}
-		if mock.bootstrapCalls != 1 {
-			return fmt.Errorf("bootstrap was called %d times, want exactly 1", mock.bootstrapCalls)
-		}
-		return nil
 	}
 
-	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		CheckDestroy: func(*terraform.State) error {
-			// Destroy must not call the API: there is no teardown endpoint,
-			// and a stray call would be a request against a real project.
-			mock.mu.Lock()
-			defer mock.mu.Unlock()
-			if mock.bootstrapCalls != 1 {
-				return fmt.Errorf("bootstrap was called %d times across the run, want exactly 1 (destroy must not call the API)", mock.bootstrapCalls)
-			}
-			return nil
-		},
-		Steps: []resource.TestStep{
-			{
-				Config: config,
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttrPair("cleura_gardener_bootstrap.new", "project_id", "cleura_openstack_project.new", "id"),
-					resource.TestCheckResourceAttr("cleura_gardener_bootstrap.new", "cloud", "public"),
-					resource.TestCheckResourceAttr("cleura_gardener_bootstrap.new", "region", "Sto2"),
-					resource.TestCheckResourceAttrSet("cleura_gardener_bootstrap.new", "id"),
-					projectWasBootstrapped,
-				),
-			},
-			{
-				// Importing records an existing bootstrap; nothing is verified
-				// because the API has no endpoint to verify against.
-				ResourceName: "cleura_gardener_bootstrap.new",
-				ImportState:  true,
-				ImportStateIdFunc: func(s *terraform.State) (string, error) {
-					rs, ok := s.RootModule().Resources["cleura_gardener_bootstrap.new"]
-					if !ok {
-						return "", fmt.Errorf("resource not found in state")
-					}
-					return rs.Primary.Attributes["project_id"], nil
-				},
-				ImportStateVerify: true,
-			},
-		},
-	})
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if !mock.bootstrapped[cfg.ProjectID] {
+		t.Errorf("project %s was never bootstrapped", cfg.ProjectID)
+	}
+	// Repeating is the whole point: the provider cannot ask whether the
+	// project is ready, so it must be willing to call every time.
+	if mock.bootstrapCalls != 3 {
+		t.Errorf("bootstrap was called %d times, want 3", mock.bootstrapCalls)
+	}
 }
 
-// TestGardenerBootstrapUsesProviderProjectID covers the common case: no
-// project_id on the resource, so it falls back to the provider's.
-func TestGardenerBootstrapUsesProviderProjectID(t *testing.T) {
+// TestEnsureBootstrappedExplainsAnUnknownProject keeps the workaround wired
+// up: live, a project id the API does not know answers an opaque 500.
+func TestEnsureBootstrappedExplainsAnUnknownProject(t *testing.T) {
 	mock := newMockIdentity()
-	bootstrapTestServer(t, mock)
+	cfg := newMockConfig(t, mock)
+	cfg.ProjectID = "00000000000000000000000000000000"
 
-	// A project the provider can point at without creating one in the run.
-	existing := mock.addProject("tfboot-existing")
-
-	config := fmt.Sprintf(`
-provider "cleura" {
-  cloud      = "public"
-  region     = "Sto2"
-  project_id = %q
-  use_cli    = false
-}
-
-resource "cleura_gardener_bootstrap" "default" {}`, existing)
-
-	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{{
-			Config: config,
-			Check: resource.ComposeAggregateTestCheckFunc(
-				resource.TestCheckResourceAttr("cleura_gardener_bootstrap.default", "project_id", existing),
-				resource.TestCheckResourceAttr("cleura_gardener_bootstrap.default", "id", "public/Sto2/"+existing),
-				func(*terraform.State) error {
-					mock.mu.Lock()
-					defer mock.mu.Unlock()
-					if !mock.bootstrapped[existing] {
-						return fmt.Errorf("project %s was never bootstrapped", existing)
-					}
-					return nil
-				},
-			),
-		}},
-	})
-}
-
-// TestGardenerBootstrapWithoutAnyProjectID checks the error a user gets when
-// neither the resource nor the provider names a project.
-func TestGardenerBootstrapWithoutAnyProjectID(t *testing.T) {
-	mock := newMockIdentity()
-	bootstrapTestServer(t, mock)
-
-	config := `
-provider "cleura" {
-  cloud   = "public"
-  region  = "Sto2"
-  use_cli = false
-}
-
-resource "cleura_gardener_bootstrap" "nowhere" {}`
-
-	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{{
-			Config:      config,
-			ExpectError: regexp.MustCompile(`(?s)Missing project_id.*CLEURA_PROJECT_ID`),
-		}},
-	})
-}
-
-// TestGardenerBootstrapUnknownProjectIsExplained is the DX case behind the
-// workaround: live, an unknown project id comes back as an opaque 500.
-func TestGardenerBootstrapUnknownProjectIsExplained(t *testing.T) {
-	mock := newMockIdentity()
-	bootstrapTestServer(t, mock)
-
-	config := `
-provider "cleura" {
-  cloud   = "public"
-  region  = "Sto2"
-  use_cli = false
-}
-
-resource "cleura_gardener_bootstrap" "typo" {
-  project_id = "00000000000000000000000000000000"
-}`
-
-	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{{
-			Config:      config,
-			ExpectError: regexp.MustCompile(`(?s)HTTP 500.*unknown project ID`),
-		}},
-	})
-}
-
-// TestGardenerBootstrapRejectsEmptyProjectID covers the config validator.
-func TestGardenerBootstrapRejectsEmptyProjectID(t *testing.T) {
-	mock := newMockIdentity()
-	bootstrapTestServer(t, mock)
-
-	config := `
-provider "cleura" {
-  cloud   = "public"
-  region  = "Sto2"
-  use_cli = false
-}
-
-resource "cleura_gardener_bootstrap" "empty" {
-  project_id = ""
-}`
-
-	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{{
-			Config:      config,
-			ExpectError: regexp.MustCompile(`Empty project_id`),
-		}},
-	})
+	diags := ensureBootstrapped(context.Background(), cfg)
+	if !diags.HasError() {
+		t.Fatal("expected an error for an unknown project")
+	}
+	detail := diags.Errors()[0].Detail()
+	if !strings.Contains(detail, "unknown project ID") {
+		t.Errorf("detail does not explain the 500: %q", detail)
+	}
 }

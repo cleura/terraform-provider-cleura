@@ -20,10 +20,9 @@ repository. Real-world reports directly shape what we build next.
 **Currently supported:**
 
 - `cleura_gardener_shoot` — Gardener-based Kubernetes clusters (worker groups, maintenance
-  windows, hibernation schedules, allowed login CIDRs, and Calico/Cilium networking)
+  windows, hibernation schedules, allowed login CIDRs, and Calico/Cilium networking). The
+  project is prepared for Gardener automatically when a shoot is created
 - `cleura_gardener_shoot_kubeconfig` — short-lived admin kubeconfigs
-- `cleura_gardener_bootstrap` — prepares an OpenStack project for Gardener, which it must be
-  before a shoot can be created in it
 - `cleura_openstack_project` — OpenStack projects (name, description, enabled state)
 - `cleura_openstack_user` — OpenStack users with write-only passwords
 - `cleura_openstack_role_assignment` — a user's roles on a project (see the

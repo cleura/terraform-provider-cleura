@@ -14,15 +14,12 @@
   project by role name, managing all of the user's roles on that project.
 - **`cleura_openstack_project` and `cleura_openstack_user` data sources** to fetch a
   project or user by ID or name.
-- **`cleura_gardener_bootstrap` resource** to prepare an OpenStack project for
-  Gardener, which a project must be before a shoot can be created in it. Its
-  `project_id` defaults to the provider's but can be set per resource, so a
-  project created by `cleura_openstack_project` in the same configuration can be
-  bootstrapped without the dependency cycle a provider-level `project_id` would
-  cause. The API offers only `POST .../bootstrap`, so the resource cannot read
-  bootstrap state or undo it: it warns at plan time that bootstrapping is
-  irreversible, and destroying it removes it from state while the project stays
-  bootstrapped.
+- **`cleura_gardener_shoot` now prepares its project for Gardener itself.** A
+  project must be bootstrapped before it can hold a shoot; creating a shoot now
+  does that first, so a project created by `cleura_openstack_project` in the same
+  configuration works with no extra step. The API has no way to report whether a
+  project is already prepared, so the call is made on every create — measured
+  live, repeating it on an already-prepared project is a no-op.
 
 ### Changed
 

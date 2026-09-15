@@ -13,6 +13,8 @@ This resource does not take `cloud`, `region`, or `project_id` attributes of its
 
 Credentials (username, token), the target `cloud`, and the API `url` are resolved automatically from the `cleura` CLI after `cleura login`, or from explicit provider config / `CLEURA_*` environment variables; `region` and `project_id` are never taken from the CLI. See the [provider authentication guide](../index.md#authentication) for the full precedence rules (installing the latest `cleura` CLI is recommended).
 
+~> **Creating a shoot prepares the project for Gardener.** A Cleura project must be bootstrapped before it can hold a shoot, so creating one does that first — no separate step is needed for a project created by [`cleura_openstack_project`](./openstack_project.md) in the same configuration. Preparing a project provisions supporting resources in it and **cannot be undone**: the API has no teardown, and destroying the shoot does not reverse it. The API also cannot report whether a project is already prepared, so the call is made on every create; repeating it on an already-prepared project is a no-op.
+
 ~> **Reconciliation takes time.** Creating a shoot, and most updates (worker-group changes, version upgrades, HA changes), trigger a Gardener reconcile that runs for **several minutes**. Terraform blocks until the cluster reports ready, so applies against this resource are expected to be slow. If a create times out or fails mid-reconcile, the cluster is still tracked in state (tainted) so a later `terraform destroy` or re-apply can clean it up rather than orphaning it.
 
 To retrieve an admin kubeconfig for the cluster once it exists, use the companion [`cleura_gardener_shoot_kubeconfig`](./gardener_shoot_kubeconfig.md) resource.

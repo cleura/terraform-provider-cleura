@@ -203,6 +203,14 @@ func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateR
 		Maintenance:          maintenancePtr,
 		Networking:           networkingPtr,
 	}
+	// A project must be prepared for Gardener before it can hold a shoot, and
+	// the API cannot report whether it already is, so this runs on every
+	// create. See ensureBootstrapped.
+	resp.Diagnostics.Append(ensureBootstrapped(ctx, r.config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	response, err := r.config.Client.GardenerCreateShoot(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, reqBody)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to create Gardener cluster", err.Error())
