@@ -456,7 +456,7 @@ func SetShootStateValues(ctx context.Context, cfg *ProviderConfig, shootCluster 
 // user's configured / prior-state list), keeping any entries not present in
 // dataList at the end in their original order.
 //
-// WORKAROUND. In Kubernetes, labels and annotations are maps and taints are a set
+// API WORKAROUND: in Kubernetes, labels and annotations are maps and taints are a set
 // keyed by (key, effect); the Cleura API instead models them as ordered arrays of
 // {key, value} and returns them in a normalized order. Terraform maps that array
 // to an ordered list, so when the API's order differs from the user's config the
