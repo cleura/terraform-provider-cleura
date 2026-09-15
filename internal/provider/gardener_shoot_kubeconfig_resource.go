@@ -2,9 +2,12 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"time"
+
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -37,6 +40,7 @@ func (r *shootKubeconfigResource) Configure(ctx context.Context, req resource.Co
 type shootKubeconfigResourceModel struct {
 	Kubeconfig               types.String `tfsdk:"kubeconfig"`
 	ShootName                types.String `tfsdk:"shoot_name"`
+	ExpiresAt                types.String `tfsdk:"expires_at"`
 	LastApplied              types.String `tfsdk:"last_applied"`
 	ExpirationSeconds        types.Int64  `tfsdk:"expiration_seconds"`
 	RenewBeforeExpirySeconds types.Int64  `tfsdk:"renew_before_expiry_seconds"`
@@ -57,7 +61,14 @@ func (r *shootKubeconfigResource) Schema(ctx context.Context, req resource.Schem
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"last_applied": schema.StringAttribute{
-				Description:   "RFC3339 timestamp recording when the kubeconfig was issued. Combined with expiration_seconds and renew_before_expiry_seconds to decide when the credential must be rotated.",
+				Description: "Deprecated: use expires_at. RFC3339 timestamp recording when the kubeconfig was issued, from which the provider used to estimate expiry before the API returned it. Still written, and still used for resources whose state predates expires_at.",
+				DeprecationMessage: "last_applied is superseded by expires_at, which the API now returns directly. " +
+					"Rotation is driven by expires_at; last_applied is only consulted for state written before it existed.",
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"expires_at": schema.StringAttribute{
+				Description:   "RFC3339 timestamp at which the kubeconfig expires, as reported by the API when it was minted. Drives rotation together with renew_before_expiry_seconds.",
 				Computed:      true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
@@ -84,6 +95,46 @@ func (r *shootKubeconfigResource) Schema(ctx context.Context, req resource.Schem
 	}
 }
 
+// kubeconfigExpiry reports when the planned kubeconfig expires, and which
+// attribute the answer came from so a replace can be anchored to it.
+//
+// expires_at is what the API reports and is authoritative. Resources created
+// before the provider read it hold only last_applied, so their expiry is still
+// estimated from the issue time plus the requested lifetime — that keeps an
+// upgrade from rotating every existing kubeconfig on the next plan.
+func kubeconfigExpiry(plan *shootKubeconfigResourceModel) (time.Time, string, bool) {
+	if v := plan.ExpiresAt.ValueString(); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			return t, "expires_at", true
+		}
+		return time.Time{}, "expires_at", false
+	}
+	if v := plan.LastApplied.ValueString(); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			return t.Add(time.Duration(plan.ExpirationSeconds.ValueInt64()) * time.Second), "last_applied", true
+		}
+		return time.Time{}, "last_applied", false
+	}
+	// Nothing recorded yet (a create); there is no expiry to act on.
+	return time.Time{}, "", false
+}
+
+// expiryDiagnostics reports an unparsable timestamp, and stays silent when
+// there simply is no timestamp yet.
+func expiryDiagnostics(plan *shootKubeconfigResourceModel) diag.Diagnostics {
+	var diags diag.Diagnostics
+	if v := plan.ExpiresAt.ValueString(); v != "" {
+		diags.AddAttributeError(path.Root("expires_at"), "Could not read the kubeconfig expiry",
+			fmt.Sprintf("expires_at holds %q, which is not an RFC3339 timestamp.", v))
+		return diags
+	}
+	if v := plan.LastApplied.ValueString(); v != "" {
+		diags.AddAttributeError(path.Root("last_applied"), "Could not read when the kubeconfig was issued",
+			fmt.Sprintf("last_applied holds %q, which is not an RFC3339 timestamp.", v))
+	}
+	return diags
+}
+
 func (r *shootKubeconfigResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	if req.Plan.Raw.IsNull() {
 		return
@@ -102,22 +153,38 @@ func (r *shootKubeconfigResource) ModifyPlan(ctx context.Context, req resource.M
 		return
 	}
 
-	if plan.LastApplied.ValueString() != "" {
-		generatedAt, err := time.Parse(time.RFC3339, plan.LastApplied.ValueString())
-		if err != nil {
-			resp.Diagnostics.AddError("failed to parse last_applied", err.Error())
+	expiry, attr, ok := kubeconfigExpiry(&plan)
+	if !ok {
+		resp.Diagnostics.Append(expiryDiagnostics(&plan)...)
+		if resp.Diagnostics.HasError() {
 			return
 		}
-
-		validTo := (plan.ExpirationSeconds.ValueInt64() - plan.RenewBeforeExpirySeconds.ValueInt64()) + generatedAt.Unix()
-		if time.Now().Unix() > validTo {
+	} else {
+		renewAt := expiry.Add(-time.Duration(plan.RenewBeforeExpirySeconds.ValueInt64()) * time.Second)
+		if now := time.Now(); now.After(renewAt) {
+			plan.Kubeconfig = types.StringUnknown()
+			plan.ExpiresAt = types.StringUnknown()
 			plan.LastApplied = types.StringUnknown()
-			resp.RequiresReplace = append(resp.RequiresReplace, path.Root("last_applied"))
-			resp.Diagnostics.AddWarning("Kubeconfig expired", "The kubeconfig expiration specified has elapsed, resource will be recreated")
+			resp.RequiresReplace = append(resp.RequiresReplace, path.Root(attr))
+			resp.Diagnostics.AddWarning(rotationWarning(now, expiry))
 		}
 	}
 
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+}
+
+// rotationWarning explains why a kubeconfig is being replaced.
+// renew_before_expiry_seconds rotates the credential *before* it expires, so
+// the summary must not report an expiry that has not happened yet — with the
+// default of 0 it has, and the two cases read differently to the user.
+func rotationWarning(now, expiry time.Time) (summary, detail string) {
+	if now.Before(expiry) {
+		return "Kubeconfig is due for renewal", fmt.Sprintf(
+			"The kubeconfig expires at %s and its renewal window has been reached; the resource will be recreated "+
+				"to issue a new one. The current one stays valid until then.", expiry.Format(time.RFC3339))
+	}
+	return "Kubeconfig expired", fmt.Sprintf(
+		"The kubeconfig expired at %s; the resource will be recreated to issue a new one.", expiry.Format(time.RFC3339))
 }
 
 func (r *shootKubeconfigResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -135,7 +202,9 @@ func (r *shootKubeconfigResource) Create(ctx context.Context, req resource.Creat
 	reqBody := api.GardenerCreateShootAdminKubeConfigRequest{
 		ExpirationSeconds: int(data.ExpirationSeconds.ValueInt64()),
 	}
-	response, err := r.config.Client.GardenerCreateShootAdminKubeConfig(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.ShootName.ValueString(), reqBody)
+	// The v3 endpoint returns the kubeconfig together with the expiry the API
+	// actually granted, so the provider no longer has to estimate it.
+	response, err := r.config.Client.GardenerCreateShootAdminKubeConfigV3(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.ShootName.ValueString(), reqBody)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to create kubeconfig for Gardener cluster", err.Error())
 		return
@@ -153,8 +222,20 @@ func (r *shootKubeconfigResource) Create(ctx context.Context, req resource.Creat
 		return
 	}
 
-	data.Kubeconfig = types.StringValue(string(body))
-	data.LastApplied = types.StringValue(time.Now().Format(time.RFC3339))
+	var issued api.GardenerAdminKubeConfig
+	if err := json.Unmarshal(body, &issued); err != nil {
+		resp.Diagnostics.AddError("Failed to decode the kubeconfig response", err.Error())
+		return
+	}
+	if issued.Kubeconfig == "" {
+		resp.Diagnostics.AddError("Empty kubeconfig",
+			"The API returned no kubeconfig in its response. Nothing was stored; re-run the apply.")
+		return
+	}
+
+	data.Kubeconfig = types.StringValue(issued.Kubeconfig)
+	data.ExpiresAt = types.StringValue(issued.ExpiresAt.UTC().Format(time.RFC3339))
+	data.LastApplied = types.StringValue(time.Now().UTC().Format(time.RFC3339))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }

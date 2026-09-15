@@ -30,8 +30,11 @@ per-attribute text — the schema has no descriptions yet):
   `expiration_seconds` (see the churn warning below).
 - `kubeconfig` *(Read-only, sensitive)* — the minted admin kubeconfig. Stored in
   Terraform state; treat state as a secret.
-- `last_applied` *(Read-only)* — RFC3339 timestamp of when the current kubeconfig was
-  minted. Drives the rotation math; not something you set.
+- `expires_at` *(Read-only)* — RFC3339 timestamp at which the credential expires, as
+  reported by the API when it was minted. Drives the rotation math; not something you set.
+- `last_applied` *(Read-only, deprecated)* — RFC3339 timestamp of when the current
+  kubeconfig was minted. Superseded by `expires_at`; still written, and still used to
+  estimate expiry for resources whose state predates `expires_at`.
 
 !> **Warning: destroying this resource does NOT revoke the credential.** `terraform
 destroy` (or removing the resource) only drops the kubeconfig from Terraform state — it
@@ -74,11 +77,11 @@ Rotation is driven entirely by Terraform runs — **there is no background timer
 controller.** The credential is only ever refreshed while you are running `terraform
 plan`/`apply`.
 
-On each run the provider computes, in wall-clock time and anchored to when the current
-kubeconfig was minted (`last_applied`):
+On each run the provider computes, in wall-clock time and anchored to the expiry the API
+reported when the credential was minted (`expires_at`):
 
 ```
-renew_at = last_applied + (expiration_seconds - renew_before_expiry_seconds)
+renew_at = expires_at - renew_before_expiry_seconds
 ```
 
 If `now > renew_at`, the provider marks the resource for replacement, emits a
@@ -95,17 +98,17 @@ Because rotation only happens on a run:
   Set `renew_before_expiry_seconds` to a value **greater than 0** (for example `300`
   for a `3600`-second credential) to rotate *ahead* of expiry.
 
--> **Note:** The provider derives `renew_at` from the *requested* `expiration_seconds`
-plus the local mint time. It does **not** parse the credential returned by the API, so
-it never reads the credential's real server-side expiry (`notAfter`). If Cleura clamps
-or shortens the requested validity, the rotation math can diverge from the credential's
-actual lifetime.
+-> **Note:** `expires_at` is the expiry the **API granted**, not the one you requested,
+so rotation stays correct even when Cleura clamps or shortens `expiration_seconds`.
+Resources created before the provider recorded `expires_at` still estimate expiry from
+`last_applied` plus the requested `expiration_seconds`; they move onto the API's own
+answer the first time they rotate. Upgrading does not itself rotate anything.
 
 ~> **Warning — replacement churn footgun:** keep `renew_before_expiry_seconds` strictly
 **below** `expiration_seconds`. If `renew_before_expiry_seconds >= expiration_seconds`,
-then `renew_at <= last_applied`, so `now > renew_at` is true immediately and the
-resource is **replaced on every single apply** — minting (and leaking, per the destroy
-note above) a new credential each time.
+then `renew_at` falls at or before the moment the credential was minted, so the renewal
+window is already open and the resource is **replaced on every single apply** — minting
+(and leaking, per the destroy note above) a new credential each time.
 
 ## Import
 
@@ -129,6 +132,7 @@ resource to your configuration and `terraform apply`.
 
 ### Read-Only
 
+- `expires_at` (String) RFC3339 timestamp at which the kubeconfig expires, as reported by the API when it was minted. Drives rotation together with renew_before_expiry_seconds.
 - `kubeconfig` (String, Sensitive) The generated administrator kubeconfig for the shoot cluster, rendered as YAML. This is the full admin credential and is marked sensitive.
-- `last_applied` (String) RFC3339 timestamp recording when the kubeconfig was issued. Combined with expiration_seconds and renew_before_expiry_seconds to decide when the credential must be rotated.
+- `last_applied` (String, Deprecated) Deprecated: use expires_at. RFC3339 timestamp recording when the kubeconfig was issued, from which the provider used to estimate expiry before the API returned it. Still written, and still used for resources whose state predates expires_at.
 

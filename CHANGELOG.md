@@ -20,6 +20,11 @@
   configuration works with no extra step. The API has no way to report whether a
   project is already prepared, so the call is made on every create — measured
   live, repeating it on an already-prepared project is a no-op.
+- **`expires_at` on `cleura_gardener_shoot_kubeconfig`.** The API now returns the
+  expiry it granted, so rotation is driven by that instead of an estimate. The
+  provider used to stamp the local mint time into `last_applied` and add the
+  *requested* `expiration_seconds`, which diverged whenever the API clamped the
+  lifetime.
 
 ### Changed
 
@@ -27,6 +32,13 @@
   echoes request fields in some validation errors, which could have put a
   `cleura_openstack_user` password into console output and CI logs even though it
   never reaches Terraform state.
+- Upgraded to `cleura-client-go` v0.3.0.
+- **Worker taint values may be omitted by the API.** A taint with only a key and
+  an effect is valid in Kubernetes, and the API now models that as a missing
+  field. `taints[*].value` remains **Required** in the provider schema, which is
+  generated from the API spec and has not been regenerated for this change, so a
+  taint with no value reads back as `""` — write `value = ""` for a valueless
+  taint.
 
 ### Deprecated
 
@@ -35,6 +47,17 @@
   the project's `domain_id`, `description`, and `enabled` state. Migrating is a
   rename; the `name` argument and `id` attribute are unchanged. `cleura_project`
   keeps working and is not scheduled for removal in this major version.
+- **`last_applied` on `cleura_gardener_shoot_kubeconfig`**, superseded by
+  `expires_at`. It is still written, and resources whose state predates
+  `expires_at` keep using it to estimate expiry, so upgrading does not rotate
+  any existing kubeconfig.
+
+### Known issues
+
+- **`image_name` on worker machines is effectively read-only.** The v0.3.0 API
+  write schema carries only the image version, while reads still return the
+  image name, so a configured `image_name` is not sent. The public cloud profile
+  offers a single image (`gardenlinux`), so no image is currently unreachable.
 
 ## v0.2.0
 

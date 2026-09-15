@@ -3,7 +3,7 @@ module github.com/cleura/terraform-provider-cleura
 go 1.25.8
 
 require (
-	github.com/cleura/cleura-client-go v0.2.0
+	github.com/cleura/cleura-client-go v0.3.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
 	github.com/hashicorp/terraform-plugin-framework-validators v0.19.0
 	github.com/hashicorp/terraform-plugin-go v0.31.0
