@@ -90,7 +90,7 @@ func TestSetShootStateValues(t *testing.T) {
 
 	data := &resource_gardener_shoot.GardenerShootModel{}
 	var diags diag.Diagnostics
-	SetShootStateValues(ctx, nil, shoot, data, &diags)
+	SetShootStateValues(ctx, nil, "", shoot, data, &diags)
 
 	if diags.HasError() {
 		t.Fatalf("unexpected errors: %v", diags.Errors())

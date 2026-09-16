@@ -34,8 +34,8 @@ func optionalTaintValue(v *string) basetypes.StringValue {
 	return basetypes.NewStringValue(*v)
 }
 
-func fetchShoot(ctx context.Context, cfg *ProviderConfig, name string) (cluster *api.GardenerShootShoot, found bool, err error) {
-	resp, err := cfg.Client.GardenerGetShoot(ctx, cfg.Cloud, cfg.Region, cfg.ProjectID, name)
+func fetchShoot(ctx context.Context, cfg *ProviderConfig, projectID, name string) (cluster *api.GardenerShootShoot, found bool, err error) {
+	resp, err := cfg.Client.GardenerGetShoot(ctx, cfg.Cloud, cfg.Region, projectID, name)
 	if err != nil {
 		return nil, false, err
 	}
@@ -59,12 +59,12 @@ func fetchShoot(ctx context.Context, cfg *ProviderConfig, name string) (cluster 
 
 // getShoot fetches a shoot that is expected to exist, reporting a missing one
 // as an error.
-func getShoot(ctx context.Context, cfg *ProviderConfig, name string, diag *diag.Diagnostics) *api.GardenerShootShoot {
+func getShoot(ctx context.Context, cfg *ProviderConfig, projectID, name string, diag *diag.Diagnostics) *api.GardenerShootShoot {
 	if cfg == nil || cfg.Client == nil {
 		diag.AddError("Missing provider config", "Reading a Gardener cluster requires a configured Cleura provider")
 		return nil
 	}
-	fetched, found, err := fetchShoot(ctx, cfg, name)
+	fetched, found, err := fetchShoot(ctx, cfg, projectID, name)
 	if err != nil {
 		diag.AddError("Failed to get Gardener cluster", err.Error())
 		return nil
@@ -79,23 +79,23 @@ func getShoot(ctx context.Context, cfg *ProviderConfig, name string, diag *diag.
 
 // setShootState maps shootCluster — fetched from the API when nil — into
 // data, id included.
-func setShootState(ctx context.Context, cfg *ProviderConfig, shootCluster *api.GardenerShootShoot, data *shootModel, diag *diag.Diagnostics) {
+func setShootState(ctx context.Context, cfg *ProviderConfig, projectID string, shootCluster *api.GardenerShootShoot, data *shootModel, diag *diag.Diagnostics) {
 	if shootCluster == nil {
-		if shootCluster = getShoot(ctx, cfg, data.Name.ValueString(), diag); shootCluster == nil {
+		if shootCluster = getShoot(ctx, cfg, projectID, data.Name.ValueString(), diag); shootCluster == nil {
 			return
 		}
 	}
-	SetShootStateValues(ctx, cfg, shootCluster, &data.GardenerShootModel, diag)
+	SetShootStateValues(ctx, cfg, projectID, shootCluster, &data.GardenerShootModel, diag)
 	if diag.HasError() {
 		return
 	}
-	data.ID = types.StringValue(shootID(cfg.ProjectID, data.Name.ValueString()))
+	data.ID = types.StringValue(shootID(projectID, data.Name.ValueString()))
 }
 
-func SetShootStateValues(ctx context.Context, cfg *ProviderConfig, shootCluster *api.GardenerShootShoot, data *resource_gardener_shoot.GardenerShootModel, diag *diag.Diagnostics) {
+func SetShootStateValues(ctx context.Context, cfg *ProviderConfig, projectID string, shootCluster *api.GardenerShootShoot, data *resource_gardener_shoot.GardenerShootModel, diag *diag.Diagnostics) {
 	// Fetch from API when shootCluster not provided (e.g. Read, Update after worker changes)
 	if shootCluster == nil {
-		if shootCluster = getShoot(ctx, cfg, data.Name.ValueString(), diag); shootCluster == nil {
+		if shootCluster = getShoot(ctx, cfg, projectID, data.Name.ValueString(), diag); shootCluster == nil {
 			return
 		}
 	}
