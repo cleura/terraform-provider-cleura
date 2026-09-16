@@ -46,7 +46,8 @@ expiry (not `destroy`) to bound a leaked credential's blast radius.
 
 - The provider must be authenticated and scoped to the project that owns the shoot.
   Credentials resolve as **provider config > `CLEURA_*` env > the `cleura` CLI
-  (`cleura login`)**; `region` and `project_id` are always taken from the provider
+  (`cleura login`)**; `region` is always taken from the provider, and `project_id`
+  defaults to it
   configuration or environment, never from the CLI. See the provider's
   [Authentication](../index.md#authentication) documentation for the full setup.
 - A `cleura_gardener_shoot` (or an existing shoot) whose `name` you pass to
@@ -128,6 +129,7 @@ resource to your configuration and `terraform apply`.
 
 ### Optional
 
+- `project_id` (String) OpenStack project holding the shoot. Defaults to the provider's project_id. Set it to match the project of the cleura_gardener_shoot this kubeconfig is for, when that is not the provider's — a mismatch cannot be detected in advance and surfaces as a 404 at apply time. Recorded in state; changing it forces a new kubeconfig.
 - `renew_before_expiry_seconds` (Number) Seconds before the kubeconfig's expiry at which Terraform proactively rotates it (by replacing the resource on the next plan/apply). Must be less than expiration_seconds. Defaults to 0, meaning the kubeconfig is rotated only after it has fully expired.
 
 ### Read-Only

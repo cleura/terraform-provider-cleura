@@ -44,17 +44,40 @@ func (r *GardenerShootResource) Schema(ctx context.Context, req resource.SchemaR
 	resp.Schema = withShootDescriptions(resource_gardener_shoot.GardenerShootResourceSchema(ctx))
 }
 
+// shootProject resolves the OpenStack project a shoot operation acts on.
+//
+// Create resolves it from the configuration, falling back to the provider;
+// every later operation takes it from state, so that editing the provider's
+// project_id does not retarget a cluster that already exists somewhere else.
+func (r *GardenerShootResource) shootProject(explicit types.String, diags *diag.Diagnostics) (string, bool) {
+	projectID, err := resolveProjectID(r.config, explicit.ValueString())
+	if err != nil {
+		diags.AddAttributeError(path.Root("project_id"), "Missing Cleura project_id",
+			capitalizeFirst(err.Error())+". It is required for Gardener resources.")
+		return "", false
+	}
+	return projectID, true
+}
+
 func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	if !require(r.config, &resp.Diagnostics, true) {
+	if !require(r.config, &resp.Diagnostics, false) {
 		return
 	}
 
-	var data resource_gardener_shoot.GardenerShootModel
+	var data shootModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	projectID, ok := r.shootProject(data.ProjectID, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	// Record the resolved project so every later read, update and delete uses
+	// this one rather than whatever the provider is pointed at by then.
+	data.ProjectID = types.StringValue(projectID)
 
 	var workers []api.GardenerCreateShootWorker
 
@@ -206,12 +229,12 @@ func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateR
 	// A project must be prepared for Gardener before it can hold a shoot, and
 	// the API cannot report whether it already is, so this runs on every
 	// create. See ensureBootstrapped.
-	resp.Diagnostics.Append(ensureBootstrapped(ctx, r.config)...)
+	resp.Diagnostics.Append(ensureBootstrapped(ctx, r.config, projectID)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	response, err := r.config.Client.GardenerCreateShoot(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, reqBody)
+	response, err := r.config.Client.GardenerCreateShoot(ctx, r.config.Cloud, r.config.Region, projectID, reqBody)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to create Gardener cluster", err.Error())
 		return
@@ -235,7 +258,7 @@ func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
-	SetShootStateValues(ctx, r.config, &shootCluster, &data, &resp.Diagnostics)
+	SetShootStateValues(ctx, r.config, projectID, &shootCluster, &data.GardenerShootModel, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -249,13 +272,13 @@ func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
-	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
+	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString(), false)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	// Refresh state from API so it reflects the applied changes (e.g. hibernation, computed fields)
-	SetShootStateValues(ctx, r.config, nil, &data, &resp.Diagnostics)
+	SetShootStateValues(ctx, r.config, projectID, nil, &data.GardenerShootModel, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -264,18 +287,27 @@ func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateR
 }
 
 func (r *GardenerShootResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	if !require(r.config, &resp.Diagnostics, true) {
+	if !require(r.config, &resp.Diagnostics, false) {
 		return
 	}
 
-	var data resource_gardener_shoot.GardenerShootModel
+	var data shootModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	cluster, found, err := fetchShoot(ctx, r.config, data.Name.ValueString())
+	// State written before project_id existed carries none; the fallback fills
+	// it from the provider, and writing it back is a silent state upgrade
+	// because the attribute is Computed.
+	projectID, ok := r.shootProject(data.ProjectID, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	data.ProjectID = types.StringValue(projectID)
+
+	cluster, found, err := fetchShoot(ctx, r.config, projectID, data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to get Gardener cluster", err.Error())
 		return
@@ -287,7 +319,7 @@ func (r *GardenerShootResource) Read(ctx context.Context, req resource.ReadReque
 		return
 	}
 
-	SetShootStateValues(ctx, r.config, cluster, &data, &resp.Diagnostics)
+	SetShootStateValues(ctx, r.config, projectID, cluster, &data.GardenerShootModel, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -299,12 +331,12 @@ func (r *GardenerShootResource) Read(ctx context.Context, req resource.ReadReque
 }
 
 func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	if !require(r.config, &resp.Diagnostics, true) {
+	if !require(r.config, &resp.Diagnostics, false) {
 		return
 	}
 
-	var data resource_gardener_shoot.GardenerShootModel
-	var state resource_gardener_shoot.GardenerShootModel
+	var data shootModel
+	var state shootModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -315,6 +347,14 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	// From state, not the plan: project_id forces replacement, so an update
+	// always acts on the project the cluster was created in.
+	projectID, ok := r.shootProject(state.ProjectID, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	data.ProjectID = types.StringValue(projectID)
 
 	allowedCidrs := []string{}
 	if !data.AllowedCidrs.IsNull() && !data.AllowedCidrs.IsUnknown() {
@@ -437,7 +477,7 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		Networking:           networkingPtr,
 	}
 
-	response, err := r.config.Client.GardenerEditShoot(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), reqBody)
+	response, err := r.config.Client.GardenerEditShoot(ctx, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString(), reqBody)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to update Gardener cluster", err.Error())
 		return
@@ -461,7 +501,7 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 	// with the changes already applied.
 	defer func() {
 		var refreshDiags diag.Diagnostics
-		SetShootStateValues(ctx, r.config, nil, &data, &refreshDiags)
+		SetShootStateValues(ctx, r.config, projectID, nil, &data.GardenerShootModel, &refreshDiags)
 		if refreshDiags.HasError() {
 			// Couldn't read the cluster back; leave existing state untouched rather
 			// than overwrite it with unverified values.
@@ -471,7 +511,7 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 	}()
 
-	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
+	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString(), false)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -518,7 +558,7 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 			resp.Diagnostics.AddError("Failed to build worker update request", err.Error())
 			return
 		}
-		updateResp, err := r.config.Client.GardenerUpdateWorkerWithBody(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), name, "application/json", bytes.NewReader(bodyBytes))
+		updateResp, err := r.config.Client.GardenerUpdateWorkerWithBody(ctx, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString(), name, "application/json", bytes.NewReader(bodyBytes))
 		if err != nil {
 			resp.Diagnostics.AddError("Failed to update worker group", fmt.Sprintf("worker %q: %s", name, err.Error()))
 			return
@@ -530,7 +570,7 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 			return
 		}
 		updateResp.Body.Close()
-		resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
+		resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString(), false)...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
@@ -542,7 +582,7 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		if _, kept := planWorkerNames[name]; kept {
 			continue
 		}
-		delResp, err := r.config.Client.GardenerDeleteWorker(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), name)
+		delResp, err := r.config.Client.GardenerDeleteWorker(ctx, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString(), name)
 		if err != nil {
 			resp.Diagnostics.AddError("Failed to delete worker group", fmt.Sprintf("worker %q: %s", name, err.Error()))
 			return
@@ -554,7 +594,7 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 			return
 		}
 		delResp.Body.Close()
-		resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
+		resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString(), false)...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
@@ -570,7 +610,7 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		if !ok {
 			return
 		}
-		createResp, err := r.config.Client.GardenerCreateWorker(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), createBody)
+		createResp, err := r.config.Client.GardenerCreateWorker(ctx, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString(), createBody)
 		if err != nil {
 			resp.Diagnostics.AddError("Failed to create worker group", fmt.Sprintf("worker %q: %s", name, err.Error()))
 			return
@@ -582,13 +622,13 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 			return
 		}
 		createResp.Body.Close()
-		resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
+		resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString(), false)...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
 	}
 
-	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), false)...)
+	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString(), false)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -598,35 +638,41 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 }
 
 func (r *GardenerShootResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	if !require(r.config, &resp.Diagnostics, true) {
+	if !require(r.config, &resp.Diagnostics, false) {
 		return
 	}
 
-	shootName := strings.TrimSpace(req.ID)
-	if shootName == "" {
-		resp.Diagnostics.AddError(
-			"Unexpected Import Identifier",
-			"Expected the shoot name. cloud, region, and project_id are taken from the provider configuration.",
-		)
+	projectID, shootName, err := parseShootImportID(req.ID)
+	if err != nil {
+		resp.Diagnostics.AddError("Unexpected Import Identifier", capitalizeFirst(err.Error())+".")
 		return
 	}
 
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), shootName)...)
+	// Left unset for the bare-name form, so Read fills it from the provider.
+	if projectID != "" {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("project_id"), projectID)...)
+	}
 }
 
 func (r *GardenerShootResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	if !require(r.config, &resp.Diagnostics, true) {
+	if !require(r.config, &resp.Diagnostics, false) {
 		return
 	}
 
-	var data resource_gardener_shoot.GardenerShootModel
+	var data shootModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	response, err := r.config.Client.GardenerDeleteShoot(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString())
+	projectID, ok := r.shootProject(data.ProjectID, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+
+	response, err := r.config.Client.GardenerDeleteShoot(ctx, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to delete Gardener cluster", err.Error())
 		return
@@ -650,7 +696,7 @@ func (r *GardenerShootResource) Delete(ctx context.Context, req resource.DeleteR
 		return
 	}
 
-	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, r.config.ProjectID, data.Name.ValueString(), true)...)
+	resp.Diagnostics.Append(WaitForShootReconcile(ctx, r.config.Client, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString(), true)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -661,7 +707,7 @@ func (r *GardenerShootResource) Delete(ctx context.Context, req resource.DeleteR
 // is only caught by the API (HTTP 409) during apply — and on a type change that
 // means the cluster is destroyed before the failed recreate.
 func (r *GardenerShootResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
-	var data resource_gardener_shoot.GardenerShootModel
+	var data shootModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -687,7 +733,7 @@ func (r *GardenerShootResource) ValidateConfig(ctx context.Context, req resource
 }
 
 func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	if !require(r.config, &resp.Diagnostics, true) {
+	if !require(r.config, &resp.Diagnostics, false) {
 		return
 	}
 
@@ -696,13 +742,13 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 		return
 	}
 
-	var plan resource_gardener_shoot.GardenerShootModel
+	var plan shootModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	var state resource_gardener_shoot.GardenerShootModel
+	var state shootModel
 
 	// `replacing` is decided up front so the computed-field pinning below can leave
 	// fields unknown on a replace. A replace destroys and recreates the cluster, so
@@ -1034,4 +1080,28 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 	plan.ShootProvider.Workers = workersListValue
 
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+}
+
+// parseShootImportID accepts "<name>", taking the project from the provider
+// configuration, or "<project_id>/<name>" to name it explicitly — needed for a
+// cluster in a project the provider is not pointed at.
+func parseShootImportID(id string) (projectID, shootName string, err error) {
+	parts := strings.Split(strings.TrimSpace(id), "/")
+	for i, part := range parts {
+		parts[i] = strings.TrimSpace(part)
+	}
+
+	switch len(parts) {
+	case 1:
+		shootName = parts[0]
+	case 2:
+		projectID, shootName = parts[0], parts[1]
+	default:
+		return "", "", fmt.Errorf("expected the shoot name, or <project_id>/<name>, got %q", id)
+	}
+
+	if shootName == "" || (len(parts) == 2 && projectID == "") {
+		return "", "", fmt.Errorf("expected the shoot name, or <project_id>/<name>, got %q", id)
+	}
+	return projectID, shootName, nil
 }
