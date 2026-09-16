@@ -34,8 +34,8 @@ func optionalTaintValue(v *string) basetypes.StringValue {
 	return basetypes.NewStringValue(*v)
 }
 
-func fetchShoot(ctx context.Context, cfg *ProviderConfig, name string) (cluster *api.GardenerShootShoot, found bool, err error) {
-	resp, err := cfg.Client.GardenerGetShoot(ctx, cfg.Cloud, cfg.Region, cfg.ProjectID, name)
+func fetchShoot(ctx context.Context, cfg *ProviderConfig, projectID, name string) (cluster *api.GardenerShootShoot, found bool, err error) {
+	resp, err := cfg.Client.GardenerGetShoot(ctx, cfg.Cloud, cfg.Region, projectID, name)
 	if err != nil {
 		return nil, false, err
 	}
@@ -57,14 +57,14 @@ func fetchShoot(ctx context.Context, cfg *ProviderConfig, name string) (cluster 
 	return &fetched, true, nil
 }
 
-func SetShootStateValues(ctx context.Context, cfg *ProviderConfig, shootCluster *api.GardenerShootShoot, data *resource_gardener_shoot.GardenerShootModel, diag *diag.Diagnostics) {
+func SetShootStateValues(ctx context.Context, cfg *ProviderConfig, projectID string, shootCluster *api.GardenerShootShoot, data *resource_gardener_shoot.GardenerShootModel, diag *diag.Diagnostics) {
 	// Fetch from API when shootCluster not provided (e.g. Read, Update after worker changes)
 	if shootCluster == nil {
 		if cfg == nil || cfg.Client == nil {
 			diag.AddError("Missing provider config", "SetShootStateValues requires a configured Cleura provider")
 			return
 		}
-		fetched, found, err := fetchShoot(ctx, cfg, data.Name.ValueString())
+		fetched, found, err := fetchShoot(ctx, cfg, projectID, data.Name.ValueString())
 		if err != nil {
 			diag.AddError("Failed to get Gardener cluster", err.Error())
 			return

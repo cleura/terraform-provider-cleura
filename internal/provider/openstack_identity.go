@@ -282,6 +282,26 @@ func resolveDomainID(ctx context.Context, cfg *ProviderConfig, explicit string) 
 	return cfg.regionDomainID(ctx)
 }
 
+// resolveProjectID picks the OpenStack project a Gardener resource acts on: the
+// resource's own project_id when set, otherwise the provider's. The resource
+// attribute exists because the provider's project_id must be resolvable before
+// the run starts, so it can never refer to a project created in the same
+// configuration.
+//
+// Callers resolve once and reuse the result: a project read at call time would
+// follow a later edit of the provider's project_id and retarget a cluster that
+// lives somewhere else.
+func resolveProjectID(cfg *ProviderConfig, explicit string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+	if cfg.ProjectID == "" {
+		return "", errors.New("set project_id on this resource, or on the provider configuration, " +
+			"or use the CLEURA_PROJECT_ID environment variable")
+	}
+	return cfg.ProjectID, nil
+}
+
 // ----- projects -----
 
 // listProjects fetches the caller's projects.

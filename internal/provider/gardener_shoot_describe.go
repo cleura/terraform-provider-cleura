@@ -1,6 +1,10 @@
 package provider
 
-import "github.com/hashicorp/terraform-plugin-framework/resource/schema"
+import (
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+)
 
 // withShootDescriptions injects the reviewed MarkdownDescription text from
 // shootAttributeDescriptions into the generated cleura_gardener_shoot schema.
@@ -11,7 +15,29 @@ func withShootDescriptions(s schema.Schema) schema.Schema {
 		s.MarkdownDescription = d
 	}
 	s.Attributes = describeShootAttributes(s.Attributes, "")
+	s.Attributes["project_id"] = shootProjectIDAttribute()
 	return s
+}
+
+// shootProjectIDAttribute is the project the shoot is created in. It is not in
+// the generated schema: project_id is a path parameter, and the generator omits
+// those. It defaults to the provider's project_id, and is recorded in state so
+// that a later edit of the provider's value does not retarget an existing
+// cluster. A shoot cannot move between projects, so a change forces replacement.
+func shootProjectIDAttribute() schema.StringAttribute {
+	return schema.StringAttribute{
+		Optional: true,
+		Computed: true,
+		MarkdownDescription: "OpenStack project the cluster is created in. Defaults to the provider's " +
+			"`project_id`. Set it explicitly to place the cluster in a project created in the same " +
+			"configuration — the provider's `project_id` must be known before the run starts, so it cannot " +
+			"refer to a `cleura_openstack_project` this provider manages. Recorded in state, so changing the " +
+			"provider's `project_id` later does not move an existing cluster. Changing it forces a new cluster.",
+		PlanModifiers: []planmodifier.String{
+			stringplanmodifier.UseStateForUnknown(),
+			stringplanmodifier.RequiresReplace(),
+		},
+	}
 }
 
 // describeShootAttributes walks the attribute tree, setting MarkdownDescription
