@@ -125,7 +125,7 @@ resource "cleura_gardener_shoot" "example" {
 ### Read-Only
 
 - `cloud_profile_name` (String) Read-only (Computed). Name of the Gardener CloudProfile the cluster was created against; assigned by the API and written back to state.
-- `id` (String) Read-only. Identifier of the cluster, `<project_id>/<name>` — the pair the API addresses a cluster by, and so the value to reference it by elsewhere, e.g. as the external name in a Crossplane provider generated from this one. Also accepted as the import ID.
+- `id` (String) Read-only. Identifier of the cluster, in the form `<project_id>/<name>`. Can also be used as the import ID.
 
 <a id="nestedatt--shoot_provider"></a>
 ### Nested Schema for `shoot_provider`

@@ -25,9 +25,8 @@ type shootModel struct {
 }
 
 // shootID is the id of a shoot, and of a kubeconfig for it: "<project_id>/<name>".
-// The API addresses a shoot by project and name only — it has no lookup by
-// uid — so this is the value a caller can find the cluster again with, and the
-// external name tools such as Crossplane's Upjet key on.
+// The API looks a shoot up by project and name only (there is no lookup by
+// uid), so this is the value the cluster can be found again with.
 func shootID(projectID, name string) string {
 	return projectID + "/" + name
 }

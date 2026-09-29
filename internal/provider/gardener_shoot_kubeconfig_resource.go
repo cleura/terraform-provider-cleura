@@ -55,8 +55,8 @@ func (r *shootKubeconfigResource) Schema(ctx context.Context, req resource.Schem
 	resp.Schema = schema.Schema{
 		Description: "Issues and manages a short-lived administrator kubeconfig for a Gardener shoot cluster. The kubeconfig is minted once, at creation, with a fixed validity (expiration_seconds); Terraform then rotates it by replacing the resource as the credential nears expiry (renew_before_expiry_seconds). Because the API only generates a kubeconfig at issuance and never regenerates it on update, changing shoot_name or expiration_seconds forces replacement. cloud, region, project_id, and credentials come from the provider configuration.",
 		Attributes: map[string]schema.Attribute{
-			"id": idAttribute("Read-only. Identifier of the cluster the kubeconfig is for, `<project_id>/<shoot_name>` — " +
-				"the same value as that cluster's `cleura_gardener_shoot` id."),
+			"id": idAttribute("Read-only. Identifier of the cluster the kubeconfig belongs to, in the form " +
+				"`<project_id>/<shoot_name>`. Matches the `id` of that `cleura_gardener_shoot`."),
 			"kubeconfig": schema.StringAttribute{
 				Description:   "The generated administrator kubeconfig for the shoot cluster, rendered as YAML. This is the full admin credential and is marked sensitive.",
 				Computed:      true,
