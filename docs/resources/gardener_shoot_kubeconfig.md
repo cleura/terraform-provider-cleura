@@ -133,6 +133,7 @@ resource to your configuration and `terraform apply`.
 ### Read-Only
 
 - `expires_at` (String) RFC3339 timestamp at which the kubeconfig expires, as reported by the API when it was minted. Drives rotation together with renew_before_expiry_seconds.
+- `id` (String) Read-only. Identifier of the cluster the kubeconfig is for, `<project_id>/<shoot_name>` — the same value as that cluster's `cleura_gardener_shoot` id.
 - `kubeconfig` (String, Sensitive) The generated administrator kubeconfig for the shoot cluster, rendered as YAML. This is the full admin credential and is marked sensitive.
 - `last_applied` (String, Deprecated) Deprecated: use expires_at. RFC3339 timestamp recording when the kubeconfig was issued, from which the provider used to estimate expiry before the API returned it. Still written, and still used for resources whose state predates expires_at.
 

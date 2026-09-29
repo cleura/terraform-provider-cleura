@@ -26,6 +26,11 @@ resource "cleura_gardener_shoot" "test" {
   }
 }
 
+resource "cleura_gardener_shoot_kubeconfig" "test" {
+  shoot_name         = cleura_gardener_shoot.test.name
+  expiration_seconds = 3600
+}
+
 variable "image_version" {
   type = string
 }

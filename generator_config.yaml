@@ -40,3 +40,4 @@ resources:
         - "shoot_provider.workers.machine.architecture"
         - "shoot_provider.workers.machine.image"
         - "uid" # Should not be needed
+        - "id" # The provider sets its own <project_id>/<name> id (gardener_shoot_model.go); a generated one would collide

@@ -11,6 +11,9 @@ func withShootDescriptions(s schema.Schema) schema.Schema {
 		s.MarkdownDescription = d
 	}
 	s.Attributes = describeShootAttributes(s.Attributes, "")
+	s.Attributes["id"] = idAttribute("Read-only. Identifier of the cluster, `<project_id>/<name>` — the pair the API " +
+		"addresses a cluster by, and so the value to reference it by elsewhere, e.g. as the external name in a " +
+		"Crossplane provider generated from this one. Also accepted as the import ID.")
 	return s
 }
 

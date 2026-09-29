@@ -25,6 +25,15 @@
   provider used to stamp the local mint time into `last_applied` and add the
   *requested* `expiration_seconds`, which diverged whenever the API clamped the
   lifetime.
+- **`id` on `cleura_gardener_shoot` and `cleura_gardener_shoot_kubeconfig`.**
+  Both are `<project_id>/<name>`, the pair the API addresses a cluster by
+  (for a kubeconfig, the cluster it is for), so tools that key on a resource's
+  `id` — such as Crossplane providers generated with Upjet — can track them.
+  Read-only; existing resources get it on the next refresh with no change
+  planned.
+- **`cleura_gardener_shoot` can be imported by its `id`.** Besides the bare shoot
+  name, import now accepts `<project_id>/<name>`. The project must be the
+  provider's `project_id`; an id naming another project is rejected.
 
 ### Changed
 

@@ -49,7 +49,7 @@ func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
-	var data resource_gardener_shoot.GardenerShootModel
+	var data shootModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -235,7 +235,7 @@ func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
-	SetShootStateValues(ctx, r.config, &shootCluster, &data, &resp.Diagnostics)
+	setShootState(ctx, r.config, &shootCluster, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -255,7 +255,7 @@ func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateR
 	}
 
 	// Refresh state from API so it reflects the applied changes (e.g. hibernation, computed fields)
-	SetShootStateValues(ctx, r.config, nil, &data, &resp.Diagnostics)
+	setShootState(ctx, r.config, nil, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -268,7 +268,7 @@ func (r *GardenerShootResource) Read(ctx context.Context, req resource.ReadReque
 		return
 	}
 
-	var data resource_gardener_shoot.GardenerShootModel
+	var data shootModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -287,7 +287,7 @@ func (r *GardenerShootResource) Read(ctx context.Context, req resource.ReadReque
 		return
 	}
 
-	SetShootStateValues(ctx, r.config, cluster, &data, &resp.Diagnostics)
+	setShootState(ctx, r.config, cluster, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -303,8 +303,8 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		return
 	}
 
-	var data resource_gardener_shoot.GardenerShootModel
-	var state resource_gardener_shoot.GardenerShootModel
+	var data shootModel
+	var state shootModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -461,7 +461,7 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 	// with the changes already applied.
 	defer func() {
 		var refreshDiags diag.Diagnostics
-		SetShootStateValues(ctx, r.config, nil, &data, &refreshDiags)
+		setShootState(ctx, r.config, nil, &data, &refreshDiags)
 		if refreshDiags.HasError() {
 			// Couldn't read the cluster back; leave existing state untouched rather
 			// than overwrite it with unverified values.
@@ -602,12 +602,17 @@ func (r *GardenerShootResource) ImportState(ctx context.Context, req resource.Im
 		return
 	}
 
-	shootName := strings.TrimSpace(req.ID)
-	if shootName == "" {
-		resp.Diagnostics.AddError(
-			"Unexpected Import Identifier",
-			"Expected the shoot name. cloud, region, and project_id are taken from the provider configuration.",
-		)
+	projectID, shootName, err := parseShootImportID(req.ID)
+	if err != nil {
+		resp.Diagnostics.AddError("Unexpected Import Identifier", capitalizeFirst(err.Error())+".")
+		return
+	}
+	// The id form names its project, but a shoot is only reachable through the
+	// provider's: refuse another rather than import a cluster from the wrong one.
+	if projectID != "" && projectID != r.config.ProjectID {
+		resp.Diagnostics.AddError("Unexpected Import Identifier",
+			fmt.Sprintf("The import ID names project %q, but the provider is configured for project %q. "+
+				"Import the cluster with a provider whose project_id is %q.", projectID, r.config.ProjectID, projectID))
 		return
 	}
 
@@ -619,7 +624,7 @@ func (r *GardenerShootResource) Delete(ctx context.Context, req resource.DeleteR
 		return
 	}
 
-	var data resource_gardener_shoot.GardenerShootModel
+	var data shootModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -661,7 +666,7 @@ func (r *GardenerShootResource) Delete(ctx context.Context, req resource.DeleteR
 // is only caught by the API (HTTP 409) during apply — and on a type change that
 // means the cluster is destroyed before the failed recreate.
 func (r *GardenerShootResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
-	var data resource_gardener_shoot.GardenerShootModel
+	var data shootModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -696,13 +701,13 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 		return
 	}
 
-	var plan resource_gardener_shoot.GardenerShootModel
+	var plan shootModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	var state resource_gardener_shoot.GardenerShootModel
+	var state shootModel
 
 	// `replacing` is decided up front so the computed-field pinning below can leave
 	// fields unknown on a replace. A replace destroys and recreates the cluster, so
@@ -1034,4 +1039,28 @@ func (r *GardenerShootResource) ModifyPlan(ctx context.Context, req resource.Mod
 	plan.ShootProvider.Workers = workersListValue
 
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+}
+
+// parseShootImportID accepts "<name>", taking the project from the provider
+// configuration, or "<project_id>/<name>" to name it explicitly — needed for a
+// cluster in a project the provider is not pointed at.
+func parseShootImportID(id string) (projectID, shootName string, err error) {
+	parts := strings.Split(strings.TrimSpace(id), "/")
+	for i, part := range parts {
+		parts[i] = strings.TrimSpace(part)
+	}
+
+	switch len(parts) {
+	case 1:
+		shootName = parts[0]
+	case 2:
+		projectID, shootName = parts[0], parts[1]
+	default:
+		return "", "", fmt.Errorf("expected the shoot name, or <project_id>/<name>, got %q", id)
+	}
+
+	if shootName == "" || (len(parts) == 2 && projectID == "") {
+		return "", "", fmt.Errorf("expected the shoot name, or <project_id>/<name>, got %q", id)
+	}
+	return projectID, shootName, nil
 }
