@@ -57,24 +57,47 @@ func fetchShoot(ctx context.Context, cfg *ProviderConfig, name string) (cluster 
 	return &fetched, true, nil
 }
 
+// getShoot fetches a shoot that is expected to exist, reporting a missing one
+// as an error.
+func getShoot(ctx context.Context, cfg *ProviderConfig, name string, diag *diag.Diagnostics) *api.GardenerShootShoot {
+	if cfg == nil || cfg.Client == nil {
+		diag.AddError("Missing provider config", "Reading a Gardener cluster requires a configured Cleura provider")
+		return nil
+	}
+	fetched, found, err := fetchShoot(ctx, cfg, name)
+	if err != nil {
+		diag.AddError("Failed to get Gardener cluster", err.Error())
+		return nil
+	}
+	if !found {
+		diag.AddError("Gardener cluster not found",
+			fmt.Sprintf("Cluster %q no longer exists in Cleura.", name))
+		return nil
+	}
+	return fetched
+}
+
+// setShootState maps shootCluster — fetched from the API when nil — into
+// data, id included.
+func setShootState(ctx context.Context, cfg *ProviderConfig, shootCluster *api.GardenerShootShoot, data *shootModel, diag *diag.Diagnostics) {
+	if shootCluster == nil {
+		if shootCluster = getShoot(ctx, cfg, data.Name.ValueString(), diag); shootCluster == nil {
+			return
+		}
+	}
+	SetShootStateValues(ctx, cfg, shootCluster, &data.GardenerShootModel, diag)
+	if diag.HasError() {
+		return
+	}
+	data.ID = types.StringValue(shootID(cfg.ProjectID, data.Name.ValueString()))
+}
+
 func SetShootStateValues(ctx context.Context, cfg *ProviderConfig, shootCluster *api.GardenerShootShoot, data *resource_gardener_shoot.GardenerShootModel, diag *diag.Diagnostics) {
 	// Fetch from API when shootCluster not provided (e.g. Read, Update after worker changes)
 	if shootCluster == nil {
-		if cfg == nil || cfg.Client == nil {
-			diag.AddError("Missing provider config", "SetShootStateValues requires a configured Cleura provider")
+		if shootCluster = getShoot(ctx, cfg, data.Name.ValueString(), diag); shootCluster == nil {
 			return
 		}
-		fetched, found, err := fetchShoot(ctx, cfg, data.Name.ValueString())
-		if err != nil {
-			diag.AddError("Failed to get Gardener cluster", err.Error())
-			return
-		}
-		if !found {
-			diag.AddError("Gardener cluster not found",
-				fmt.Sprintf("Cluster %q no longer exists in Cleura.", data.Name.ValueString()))
-			return
-		}
-		shootCluster = fetched
 	}
 
 	// All values below are built from API response (data may be empty during import)

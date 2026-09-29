@@ -19,6 +19,7 @@ func TestAccShootResource(t *testing.T) {
 	tfVars := make(map[string]config.Variable)
 	tfVars["kubernetes_version"] = config.StringVariable(os.Getenv("CLEURA_TEST_KUBERNETES_VERSION"))
 	tfVars["image_version"] = config.StringVariable(os.Getenv("CLEURA_TEST_IMAGE_VERSION"))
+	const shootName = "acctest" // the name variable's default in testdata
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
@@ -29,6 +30,9 @@ func TestAccShootResource(t *testing.T) {
 				ConfigDirectory: config.TestStepDirectory(),
 				ConfigVariables: tfVars,
 				Check: resource.ComposeAggregateTestCheckFunc(
+					// id is <project_id>/<name>, for the shoot and its kubeconfig alike.
+					resource.TestCheckResourceAttr("cleura_gardener_shoot.test", "id", os.Getenv("CLEURA_PROJECT_ID")+"/"+shootName),
+					resource.TestCheckResourceAttr("cleura_gardener_shoot_kubeconfig.test", "id", os.Getenv("CLEURA_PROJECT_ID")+"/"+shootName),
 
 					resource.TestCheckResourceAttr("cleura_gardener_shoot.test", "shoot_provider.workers.#", "1"),
 					resource.TestCheckResourceAttr("cleura_gardener_shoot.test", "shoot_provider.workers.0.name", "wg1"),
@@ -58,6 +62,9 @@ func TestAccShootResource(t *testing.T) {
 				ConfigDirectory: config.TestStepDirectory(),
 				ConfigVariables: tfVars,
 				Check: resource.ComposeAggregateTestCheckFunc(
+					// id is <project_id>/<name>, for the shoot and its kubeconfig alike.
+					resource.TestCheckResourceAttr("cleura_gardener_shoot.test", "id", os.Getenv("CLEURA_PROJECT_ID")+"/"+shootName),
+					resource.TestCheckResourceAttr("cleura_gardener_shoot_kubeconfig.test", "id", os.Getenv("CLEURA_PROJECT_ID")+"/"+shootName),
 					resource.TestCheckResourceAttr("cleura_gardener_shoot.test", "allowed_cidrs.#", "2"),
 					resource.TestCheckResourceAttr("cleura_gardener_shoot.test", "allowed_cidrs.0", "192.168.0.0/16"),
 					resource.TestCheckResourceAttr("cleura_gardener_shoot.test", "allowed_cidrs.1", "10.0.0.0/8"),

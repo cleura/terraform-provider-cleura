@@ -38,6 +38,7 @@ func (r *shootKubeconfigResource) Configure(ctx context.Context, req resource.Co
 }
 
 type shootKubeconfigResourceModel struct {
+	ID                       types.String `tfsdk:"id"`
 	Kubeconfig               types.String `tfsdk:"kubeconfig"`
 	ShootName                types.String `tfsdk:"shoot_name"`
 	ExpiresAt                types.String `tfsdk:"expires_at"`
@@ -54,6 +55,8 @@ func (r *shootKubeconfigResource) Schema(ctx context.Context, req resource.Schem
 	resp.Schema = schema.Schema{
 		Description: "Issues and manages a short-lived administrator kubeconfig for a Gardener shoot cluster. The kubeconfig is minted once, at creation, with a fixed validity (expiration_seconds); Terraform then rotates it by replacing the resource as the credential nears expiry (renew_before_expiry_seconds). Because the API only generates a kubeconfig at issuance and never regenerates it on update, changing shoot_name or expiration_seconds forces replacement. cloud, region, project_id, and credentials come from the provider configuration.",
 		Attributes: map[string]schema.Attribute{
+			"id": idAttribute("Read-only. Identifier of the cluster the kubeconfig belongs to, in the form " +
+				"`<project_id>/<shoot_name>`. Matches the `id` of that `cleura_gardener_shoot`."),
 			"kubeconfig": schema.StringAttribute{
 				Description:   "The generated administrator kubeconfig for the shoot cluster, rendered as YAML. This is the full admin credential and is marked sensitive.",
 				Computed:      true,
@@ -233,6 +236,7 @@ func (r *shootKubeconfigResource) Create(ctx context.Context, req resource.Creat
 		return
 	}
 
+	data.ID = types.StringValue(shootID(r.config.ProjectID, data.ShootName.ValueString()))
 	data.Kubeconfig = types.StringValue(issued.Kubeconfig)
 	data.ExpiresAt = types.StringValue(issued.ExpiresAt.UTC().Format(time.RFC3339))
 	data.LastApplied = types.StringValue(time.Now().UTC().Format(time.RFC3339))
@@ -246,6 +250,12 @@ func (r *shootKubeconfigResource) Read(ctx context.Context, req resource.ReadReq
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+
+	// Read never calls the API, so this is the only place a kubeconfig created
+	// before id existed gets one.
+	if data.ID.IsNull() && r.config != nil && r.config.ProjectID != "" {
+		data.ID = types.StringValue(shootID(r.config.ProjectID, data.ShootName.ValueString()))
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

@@ -11,6 +11,8 @@ func withShootDescriptions(s schema.Schema) schema.Schema {
 		s.MarkdownDescription = d
 	}
 	s.Attributes = describeShootAttributes(s.Attributes, "")
+	s.Attributes["id"] = idAttribute("Read-only. Identifier of the cluster, in the form `<project_id>/<name>`. " +
+		"Can also be used as the import ID.")
 	return s
 }
 

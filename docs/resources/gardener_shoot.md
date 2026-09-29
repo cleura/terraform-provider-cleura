@@ -125,6 +125,7 @@ resource "cleura_gardener_shoot" "example" {
 ### Read-Only
 
 - `cloud_profile_name` (String) Read-only (Computed). Name of the Gardener CloudProfile the cluster was created against; assigned by the API and written back to state.
+- `id` (String) Read-only. Identifier of the cluster, in the form `<project_id>/<name>`. Can also be used as the import ID.
 
 <a id="nestedatt--shoot_provider"></a>
 ### Nested Schema for `shoot_provider`
@@ -309,11 +310,12 @@ On create, `networking.type` and `cilium_provider_config` are both settable. On 
 
 ## Import
 
-A shoot is imported by its **name only** — `cloud`, `region`, and `project_id` are taken from the provider configuration, so make sure the provider is configured for the same project that owns the cluster before importing.
+A shoot is imported by its `id`, `<project_id>/<name>`, or by its name alone. `cloud` and `region` — and, for a bare name, `project_id` — are taken from the provider configuration, so make sure the provider is configured for the project that owns the cluster; an `id` naming a different project is rejected.
 
 ```shell
-# A shoot is imported by its name only. cloud, region, and project_id come from
-# the provider configuration, so configure the provider for the project that
-# owns the cluster before importing.
+# A shoot is imported by its id, <project_id>/<name>, or by its name alone.
+# cloud, region, and project_id come from the provider configuration, so
+# configure the provider for the project that owns the cluster before importing.
+terraform import cleura_gardener_shoot.example 0f3c1e2a4b5d6e7f8091a2b3c4d5e6f7/my-cluster-name
 terraform import cleura_gardener_shoot.example my-cluster-name
 ```
