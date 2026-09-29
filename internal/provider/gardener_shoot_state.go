@@ -85,21 +85,16 @@ func setShootState(ctx context.Context, cfg *ProviderConfig, projectID string, s
 			return
 		}
 	}
-	SetShootStateValues(ctx, cfg, projectID, shootCluster, &data.GardenerShootModel, diag)
+	SetShootStateValues(ctx, shootCluster, &data.GardenerShootModel, diag)
 	if diag.HasError() {
 		return
 	}
 	data.ID = types.StringValue(shootID(projectID, data.Name.ValueString()))
 }
 
-func SetShootStateValues(ctx context.Context, cfg *ProviderConfig, projectID string, shootCluster *api.GardenerShootShoot, data *resource_gardener_shoot.GardenerShootModel, diag *diag.Diagnostics) {
-	// Fetch from API when shootCluster not provided (e.g. Read, Update after worker changes)
-	if shootCluster == nil {
-		if shootCluster = getShoot(ctx, cfg, projectID, data.Name.ValueString(), diag); shootCluster == nil {
-			return
-		}
-	}
-
+// SetShootStateValues maps a shoot as the API returned it into data. Callers
+// that may not have the shoot yet go through setShootState, which fetches it.
+func SetShootStateValues(ctx context.Context, shootCluster *api.GardenerShootShoot, data *resource_gardener_shoot.GardenerShootModel, diag *diag.Diagnostics) {
 	// All values below are built from API response (data may be empty during import)
 
 	// Surface a failed/aborted reconcile so a refresh/plan reflects the cluster's
