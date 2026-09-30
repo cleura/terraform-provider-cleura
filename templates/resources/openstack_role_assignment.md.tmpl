@@ -26,11 +26,6 @@ access), `load-balancer_member` (Octavia load balancers), and `swiftoperator` (o
 storage). The user and project must be in the same OpenStack domain, which defaults to the
 domain serving the provider's `region`.
 
-~> **Note:** The Cleura API's role listing can lag behind a revoke by minutes, and different calls
-may briefly disagree. The provider waits for revocations to settle (up to 60 seconds) before
-finishing an apply, but a `plan` run right after may still show a revoked role as present; it
-settles on its own. Re-applying is harmless.
-
 -> **Domains:** the domain this resource lives in is derived from the provider's `region`; see
 [OpenStack projects, users and domains](../guides/openstack-identity.md) for how that works and
 when to set `domain_id`.

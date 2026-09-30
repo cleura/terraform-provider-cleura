@@ -66,14 +66,13 @@ func (r *shootKubeconfigResource) Schema(ctx context.Context, req resource.Schem
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"last_applied": schema.StringAttribute{
-				Description: "Deprecated: use expires_at. RFC3339 timestamp recording when the kubeconfig was issued, from which the provider used to estimate expiry before the API returned it. Still written, and still used for resources whose state predates expires_at.",
-				DeprecationMessage: "last_applied is superseded by expires_at, which the API now returns directly. " +
-					"Rotation is driven by expires_at; last_applied is only consulted for state written before it existed.",
-				Computed:      true,
-				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+				Description:        "Deprecated: use expires_at. RFC3339 timestamp of when the kubeconfig was issued, kept for compatibility.",
+				DeprecationMessage: "last_applied is superseded by expires_at, which drives rotation.",
+				Computed:           true,
+				PlanModifiers:      []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"expires_at": schema.StringAttribute{
-				Description:   "RFC3339 timestamp at which the kubeconfig expires, as reported by the API when it was minted. Drives rotation together with renew_before_expiry_seconds.",
+				Description:   "RFC3339 timestamp at which the kubeconfig expires, as granted by Cleura when it was minted. Drives rotation together with renew_before_expiry_seconds.",
 				Computed:      true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},

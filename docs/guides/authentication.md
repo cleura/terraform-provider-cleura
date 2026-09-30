@@ -30,9 +30,8 @@ provider "cleura" {
 }
 ```
 
-~> **Region tags are case-sensitive.** The live Cleura API returns capitalized
-tags (`Sto2`, `Fra1`, `Kna1`) and the provider matches them exactly. Use `Sto2`,
-not `sto2`.
+~> **Region tags are case-sensitive.** Use them exactly as Cleura shows them
+(`Sto2`, `Fra1`, `Kna1`): `Sto2`, not `sto2`.
 
 ## Credential precedence
 

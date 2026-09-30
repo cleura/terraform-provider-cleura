@@ -4,8 +4,8 @@ resource "cleura_openstack_project" "example" {
   name        = "team-sandbox"
   description = "Sandbox for the platform team"
 
-  # Optional; defaults to true. Destroying the resource sets this to false,
-  # because the Cleura API cannot delete projects.
+  # Optional; defaults to true. Projects in Cleura are permanent, so
+  # destroying the resource sets this to false.
   enabled = true
 }
 
