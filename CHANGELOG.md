@@ -36,8 +36,8 @@
 - **`project_id` on `cleura_gardener_shoot` and `cleura_gardener_shoot_kubeconfig`,**
   defaulting to the provider's. A provider's `project_id` has to be resolvable
   before the run starts, so it can never refer to a project the same
-  configuration creates; setting it on the resource makes a project, an
-  OpenStack user and a cluster expressible in one apply.
+  configuration creates; setting it on the resource lets a project and a
+  cluster inside it be created in one apply.
 
 ### Changed
 

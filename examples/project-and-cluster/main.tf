@@ -1,14 +1,14 @@
-# End-to-end starter: OpenStack project + user (member) + Gardener cluster.
+# End-to-end starter: an OpenStack project and a Gardener cluster inside it.
 #
 # Prerequisites: `cleura login` (or set CLEURA_API_USERNAME / CLEURA_API_TOKEN).
-# Gardener runs in the project created below. The provider has no `project_id`:
-# provider configuration must resolve before the run starts, so it can never
-# reference a project this configuration creates. The Gardener resources name the
-# project themselves instead, which is what lets all of this be one apply.
+# The provider has no `project_id`: provider configuration must resolve before
+# the run starts, so it can never reference a project this configuration
+# creates. The Gardener resources name the project themselves instead, which is
+# what lets this be one apply.
 #
 # Usage:
 #   terraform init
-#   terraform apply -var='openstack_user_password=...'
+#   terraform apply
 #
 terraform {
   required_version = ">= 1.11.0"
@@ -16,7 +16,7 @@ terraform {
   required_providers {
     cleura = {
       source  = "cleura/cleura"
-      version = "~> 0.2"
+      version = "~> 0.3"
     }
   }
 }
@@ -39,18 +39,6 @@ variable "project_name" {
   description = "Name of the OpenStack project to create."
 }
 
-variable "openstack_user_name" {
-  type        = string
-  default     = "platform-operator"
-  description = "OpenStack (Keystone) user created in the same region domain."
-}
-
-variable "openstack_user_password" {
-  type        = string
-  sensitive   = true
-  description = "Password for the OpenStack user (write-only; never commit a real value)."
-}
-
 variable "cluster_name" {
   type        = string
   default     = "starter"
@@ -67,21 +55,7 @@ provider "cleura" {
 
 resource "cleura_openstack_project" "platform" {
   name        = var.project_name
-  description = "Project for the starter Gardener cluster and OpenStack user"
-}
-
-resource "cleura_openstack_user" "operator" {
-  name        = var.openstack_user_name
-  description = "OpenStack user with member access to ${var.project_name}"
-
-  password            = var.openstack_user_password
-  password_wo_version = "1"
-}
-
-resource "cleura_openstack_role_assignment" "operator_member" {
-  user_id    = cleura_openstack_user.operator.id
-  project_id = cleura_openstack_project.platform.id
-  roles      = ["member"]
+  description = "Project for the starter Gardener cluster"
 }
 
 resource "cleura_gardener_shoot" "starter" {
@@ -89,7 +63,7 @@ resource "cleura_gardener_shoot" "starter" {
   # Gardener, which is irreversible — there is no teardown for it.
   project_id         = cleura_openstack_project.platform.id
   name               = var.cluster_name
-  kubernetes_version = "1.35.6"
+  kubernetes_version = "1.35.8"
 
   shoot_provider = {
     load_balancer_provider = "amphora"
@@ -102,8 +76,8 @@ resource "cleura_gardener_shoot" "starter" {
       {
         name = "default"
         machine = {
-          #          image_name    = "gardenlinux"
-          image_version = "1877.19.0"
+          image_name    = "gardenlinux"
+          image_version = "1877.24.0"
           type          = "b.2c4gb"
         }
         minimum     = 2
@@ -116,8 +90,8 @@ resource "cleura_gardener_shoot" "starter" {
 }
 
 resource "cleura_gardener_shoot_kubeconfig" "starter" {
-  # Must match the shoot's project; nothing cross-checks it for you.
-  project_id         = cleura_openstack_project.platform.id
+  # Taken from the shoot, so the kubeconfig is always minted in the cluster's project.
+  project_id         = cleura_gardener_shoot.starter.project_id
   shoot_name         = cleura_gardener_shoot.starter.name
   expiration_seconds = 3600
 }
@@ -127,12 +101,8 @@ output "project_id" {
   description = "OpenStack project ID, which the Gardener resources above are pointed at."
 }
 
-output "openstack_user_id" {
-  value = cleura_openstack_user.operator.id
-}
-
-output "cluster_name" {
-  value = cleura_gardener_shoot.starter.name
+output "cluster_id" {
+  value = cleura_gardener_shoot.starter.id
 }
 
 output "kubeconfig" {

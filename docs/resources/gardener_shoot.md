@@ -313,7 +313,7 @@ On create, `networking.type` and `cilium_provider_config` are both settable. On 
 
 ## Creating the project and the cluster together
 
-Onboarding a new tenant — a project, an OpenStack user with access to it, and a cluster inside it — is a single configuration, because `project_id` is set on the resource rather than the provider. The provider's own `project_id` must be resolvable before the run starts, so it can never refer to a project this provider creates.
+A project and a cluster inside it can be created in one configuration, because `project_id` is set on the resource rather than the provider. The provider's own `project_id` must be resolvable before the run starts, so it can never refer to a project this provider creates.
 
 ```terraform
 provider "cleura" {
@@ -327,23 +327,17 @@ resource "cleura_openstack_project" "tenant" {
   description = "Project for the ACME tenant"
 }
 
-resource "cleura_openstack_user" "tenant" {
-  name                = "acme-deployer"
-  password            = var.tenant_password
-  password_wo_version = "1"
-}
-
-resource "cleura_openstack_role_assignment" "tenant" {
-  user_id    = cleura_openstack_user.tenant.id
-  project_id = cleura_openstack_project.tenant.id
-  roles      = ["member"]
-}
-
 resource "cleura_gardener_shoot" "tenant" {
   project_id         = cleura_openstack_project.tenant.id
   name               = "acme"
-  kubernetes_version = "1.35.6"
+  kubernetes_version = "1.35.8"
   # ... workers and the rest as above
+}
+
+resource "cleura_gardener_shoot_kubeconfig" "tenant" {
+  project_id         = cleura_gardener_shoot.tenant.project_id
+  shoot_name         = cleura_gardener_shoot.tenant.name
+  expiration_seconds = 3600
 }
 ```
 
