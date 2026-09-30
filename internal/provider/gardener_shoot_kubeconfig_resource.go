@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -41,6 +42,7 @@ type shootKubeconfigResourceModel struct {
 	ID                       types.String `tfsdk:"id"`
 	Kubeconfig               types.String `tfsdk:"kubeconfig"`
 	ShootName                types.String `tfsdk:"shoot_name"`
+	ProjectID                types.String `tfsdk:"project_id"`
 	ExpiresAt                types.String `tfsdk:"expires_at"`
 	LastApplied              types.String `tfsdk:"last_applied"`
 	ExpirationSeconds        types.Int64  `tfsdk:"expiration_seconds"`
@@ -87,6 +89,18 @@ func (r *shootKubeconfigResource) Schema(ctx context.Context, req resource.Schem
 				Required:    true,
 				// Bug #8: changing the validity must reissue the kubeconfig.
 				PlanModifiers: []planmodifier.Int64{int64planmodifier.RequiresReplace()},
+			},
+			"project_id": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				Description: "OpenStack project holding the shoot. Defaults to the provider's project_id. Set it to " +
+					"match the project of the cleura_gardener_shoot this kubeconfig is for, when that is not the " +
+					"provider's — a mismatch cannot be detected in advance and surfaces as a 404 at apply time. " +
+					"Recorded in state; changing it forces a new kubeconfig.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"renew_before_expiry_seconds": schema.Int64Attribute{
 				Description: "Seconds before the kubeconfig's expiry at which Terraform proactively rotates it (by replacing the resource on the next plan/apply). Must be less than expiration_seconds. Defaults to 0, meaning the kubeconfig is rotated only after it has fully expired.",
@@ -146,7 +160,7 @@ func (r *shootKubeconfigResource) ModifyPlan(ctx context.Context, req resource.M
 	// Guard project_id at plan time (Create needs it): otherwise plan is green
 	// and only apply fails with "Missing project_id". Placed after the destroy
 	// early-return above because Delete is a no-op that needs no project_id.
-	if !require(r.config, &resp.Diagnostics, true) {
+	if !require(r.config, &resp.Diagnostics, false) {
 		return
 	}
 
@@ -191,7 +205,7 @@ func rotationWarning(now, expiry time.Time) (summary, detail string) {
 }
 
 func (r *shootKubeconfigResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	if !require(r.config, &resp.Diagnostics, true) {
+	if !require(r.config, &resp.Diagnostics, false) {
 		return
 	}
 
@@ -207,7 +221,15 @@ func (r *shootKubeconfigResource) Create(ctx context.Context, req resource.Creat
 	}
 	// The v3 endpoint returns the kubeconfig together with the expiry the API
 	// actually granted, so the provider no longer has to estimate it.
-	response, err := r.config.Client.GardenerCreateShootAdminKubeConfigV3(ctx, r.config.Cloud, r.config.Region, r.config.ProjectID, data.ShootName.ValueString(), reqBody)
+	projectID, err := resolveProjectID(r.config, data.ProjectID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddAttributeError(path.Root("project_id"), "Missing Cleura project_id",
+			capitalizeFirst(err.Error())+". It is required for Gardener resources.")
+		return
+	}
+	data.ProjectID = types.StringValue(projectID)
+
+	response, err := r.config.Client.GardenerCreateShootAdminKubeConfigV3(ctx, r.config.Cloud, r.config.Region, projectID, data.ShootName.ValueString(), reqBody)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to create kubeconfig for Gardener cluster", err.Error())
 		return
@@ -221,7 +243,8 @@ func (r *shootKubeconfigResource) Create(ctx context.Context, req resource.Creat
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		resp.Diagnostics.AddError(fmt.Sprintf("API error %d", response.StatusCode), string(body))
+		resp.Diagnostics.AddError(fmt.Sprintf("API error %d", response.StatusCode),
+			kubeconfigErrorDetail(response.StatusCode, projectID, data.ShootName.ValueString(), body))
 		return
 	}
 
@@ -236,7 +259,7 @@ func (r *shootKubeconfigResource) Create(ctx context.Context, req resource.Creat
 		return
 	}
 
-	data.ID = types.StringValue(shootID(r.config.ProjectID, data.ShootName.ValueString()))
+	data.ID = types.StringValue(shootID(projectID, data.ShootName.ValueString()))
 	data.Kubeconfig = types.StringValue(issued.Kubeconfig)
 	data.ExpiresAt = types.StringValue(issued.ExpiresAt.UTC().Format(time.RFC3339))
 	data.LastApplied = types.StringValue(time.Now().UTC().Format(time.RFC3339))
@@ -253,9 +276,16 @@ func (r *shootKubeconfigResource) Read(ctx context.Context, req resource.ReadReq
 	}
 
 	// Read never calls the API, so this is the only place a kubeconfig created
-	// before id existed gets one.
-	if data.ID.IsNull() && r.config != nil && r.config.ProjectID != "" {
-		data.ID = types.StringValue(shootID(r.config.ProjectID, data.ShootName.ValueString()))
+	// before id existed gets one. Its project is the recorded one, or — for
+	// state older than project_id — the provider's, which is what created it.
+	if data.ID.IsNull() {
+		projectID := data.ProjectID.ValueString()
+		if projectID == "" && r.config != nil {
+			projectID = r.config.ProjectID
+		}
+		if projectID != "" {
+			data.ID = types.StringValue(shootID(projectID, data.ShootName.ValueString()))
+		}
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -279,4 +309,19 @@ func (r *shootKubeconfigResource) Delete(ctx context.Context, req resource.Delet
 	if resp.Diagnostics.HasError() {
 		return
 	}
+}
+
+// kubeconfigErrorDetail explains the failure a project mismatch produces.
+//
+// Nothing ties this resource's project_id to the project of the shoot it names,
+// so pointing it at the wrong one is indistinguishable from a missing cluster:
+// both answer 404. The likely cause is named rather than left to the raw body.
+func kubeconfigErrorDetail(status int, projectID, shootName string, body []byte) string {
+	detail := string(body)
+	if status == http.StatusNotFound {
+		return detail + fmt.Sprintf("\n\nNo shoot named %q exists in project %s. Check the shoot name, and that "+
+			"project_id matches the project the cluster was created in — a kubeconfig cannot be issued across "+
+			"projects.", shootName, projectID)
+	}
+	return detail
 }

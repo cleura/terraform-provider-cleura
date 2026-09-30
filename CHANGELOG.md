@@ -31,8 +31,13 @@
   Read-only; existing resources get it on the next refresh with no change
   planned.
 - **`cleura_gardener_shoot` can be imported by its `id`.** Besides the bare shoot
-  name, import now accepts `<project_id>/<name>`. The project must be the
-  provider's `project_id`; an id naming another project is rejected.
+  name, import now accepts `<project_id>/<name>`, which may name any project the
+  credentials can access.
+- **`project_id` on `cleura_gardener_shoot` and `cleura_gardener_shoot_kubeconfig`,**
+  defaulting to the provider's. A provider's `project_id` has to be resolvable
+  before the run starts, so it can never refer to a project the same
+  configuration creates; setting it on the resource lets a project and a
+  cluster inside it be created in one apply.
 
 ### Changed
 
@@ -47,6 +52,16 @@
   generated from the API spec and has not been regenerated for this change, so a
   taint with no value reads back as `""` — write `value = ""` for a valueless
   taint.
+
+### Fixed
+
+- **Editing the provider's `project_id` no longer retargets existing clusters.**
+  Every Gardener call read the provider's project at call time, including refresh,
+  update and delete, so repointing the provider made Terraform look for a cluster
+  in the wrong project — reading a 404 and planning a recreate, or editing worker
+  groups against a project the cluster does not live in. The project a cluster was
+  created in is now recorded in state and used for its whole lifetime. Clusters
+  already in state adopt their current project on the next refresh, with no diff.
 
 ### Deprecated
 

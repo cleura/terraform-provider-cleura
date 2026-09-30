@@ -34,18 +34,18 @@ func TestBootstrapErrorDetail(t *testing.T) {
 func TestEnsureBootstrapped(t *testing.T) {
 	mock := newMockIdentity()
 	cfg := newMockConfig(t, mock)
-	cfg.ProjectID = mock.addProject("tfboot-target")
+	projectID := mock.addProject("tfboot-target")
 
 	for i := 1; i <= 3; i++ {
-		if diags := ensureBootstrapped(context.Background(), cfg); diags.HasError() {
+		if diags := ensureBootstrapped(context.Background(), cfg, projectID); diags.HasError() {
 			t.Fatalf("call %d failed: %v", i, diags.Errors())
 		}
 	}
 
 	mock.mu.Lock()
 	defer mock.mu.Unlock()
-	if !mock.bootstrapped[cfg.ProjectID] {
-		t.Errorf("project %s was never bootstrapped", cfg.ProjectID)
+	if !mock.bootstrapped[projectID] {
+		t.Errorf("project %s was never bootstrapped", projectID)
 	}
 	// Repeating is the whole point: the provider cannot ask whether the
 	// project is ready, so it must be willing to call every time.
@@ -59,9 +59,8 @@ func TestEnsureBootstrapped(t *testing.T) {
 func TestEnsureBootstrappedExplainsAnUnknownProject(t *testing.T) {
 	mock := newMockIdentity()
 	cfg := newMockConfig(t, mock)
-	cfg.ProjectID = "00000000000000000000000000000000"
 
-	diags := ensureBootstrapped(context.Background(), cfg)
+	diags := ensureBootstrapped(context.Background(), cfg, "00000000000000000000000000000000")
 	if !diags.HasError() {
 		t.Fatal("expected an error for an unknown project")
 	}

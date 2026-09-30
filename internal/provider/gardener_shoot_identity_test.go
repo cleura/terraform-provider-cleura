@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -17,6 +18,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
@@ -230,11 +232,12 @@ func TestKubeconfigIDFilledForOlderState(t *testing.T) {
 	}
 }
 
-// TestShootImportRejectsOtherProject: the id form names a project, but a shoot
-// is only reachable through the provider's, so another one must be refused
-// rather than silently looked up in the wrong project.
-func TestShootImportRejectsOtherProject(t *testing.T) {
-	serveShootAPI(t, &mockShootAPI{})
+// TestShootImportFromOtherProject: an id naming another project imports the
+// cluster from there and records that project, so later reads, updates and
+// deletes stay pointed at it.
+func TestShootImportFromOtherProject(t *testing.T) {
+	const other = "0000aaaa0000aaaa0000aaaa0000aaaa"
+	serveShootAPI(t, &mockShootAPI{shoots: map[string]bool{"idtest": true}})
 
 	resource.UnitTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -242,8 +245,18 @@ func TestShootImportRejectsOtherProject(t *testing.T) {
 			Config:        identityTestConfig("idtest"),
 			ResourceName:  "cleura_gardener_shoot.test",
 			ImportState:   true,
-			ImportStateId: "0000aaaa0000aaaa0000aaaa0000aaaa/idtest",
-			ExpectError:   regexp.MustCompile(`names project "0000aaaa0000aaaa0000aaaa0000aaaa"`),
+			ImportStateId: other + "/idtest",
+			ImportStateCheck: func(states []*terraform.InstanceState) error {
+				if len(states) != 1 {
+					return fmt.Errorf("imported %d instances, want 1", len(states))
+				}
+				attrs := states[0].Attributes
+				if attrs["project_id"] != other || attrs["id"] != other+"/idtest" {
+					return fmt.Errorf("project_id = %q, id = %q; want %q, %q",
+						attrs["project_id"], attrs["id"], other, other+"/idtest")
+				}
+				return nil
+			},
 		}},
 	})
 }

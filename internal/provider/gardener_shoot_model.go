@@ -9,19 +9,20 @@ import (
 	"github.com/cleura/terraform-provider-cleura/internal/provider/resource_gardener_shoot"
 )
 
-// shootModel is the generated shoot model plus id.
+// shootModel is the generated shoot model plus id and project_id.
 //
 // The generated model (resource_gardener_shoot, DO NOT EDIT) carries only the
-// attributes derived from the API body, and the API body has no id. Embedding
-// by value — which terraform-plugin-framework maps into the schema's object
-// type — adds the attribute without editing generated code, so ./generate.sh
-// stays safe to re-run.
+// attributes derived from the API body: the API body has no id, and project_id
+// is a path parameter, which the generator leaves out. Embedding by value —
+// which terraform-plugin-framework maps into the schema's object type — adds
+// them without editing generated code, so ./generate.sh stays safe to re-run.
 //
 // Pass &data.GardenerShootModel to helpers that take the generated type.
 type shootModel struct {
 	resource_gardener_shoot.GardenerShootModel
 
-	ID types.String `tfsdk:"id"`
+	ID        types.String `tfsdk:"id"`
+	ProjectID types.String `tfsdk:"project_id"`
 }
 
 // shootID is the id of a shoot, and of a kubeconfig for it: "<project_id>/<name>".

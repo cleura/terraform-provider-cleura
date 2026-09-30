@@ -9,7 +9,9 @@ description: |-
 
 Manages a **Gardener "shoot"** — a full, managed Kubernetes cluster on [Cleura Cloud](https://cleura.com/). A single `cleura_gardener_shoot` resource owns the whole cluster: its control plane, worker groups, CNI networking, maintenance window, hibernation schedules, and the CIDRs allowed to reach the Kubernetes API.
 
-This resource does not take `cloud`, `region`, or `project_id` attributes of its own — they come from the [provider configuration](../index.md). `cloud` and `region` are required by the provider, and **`project_id` is mandatory** for Gardener resources (a shoot is always created inside one Cleura project). Note that `region` is a **case-sensitive** Cleura tag such as `Sto2`, `Fra1`, or `Kna1` — it must match the API's capitalization exactly.
+`cloud` and `region` come from the [provider configuration](../index.md) and have no attributes here. `project_id` defaults to the provider's, but **can be set on the resource** — a shoot is always created inside one Cleura project, and this is how you place it in a project created by the same configuration (see [Creating the project and the cluster together](#creating-the-project-and-the-cluster-together)). Note that `region` is a **case-sensitive** Cleura tag such as `Sto2`, `Fra1`, or `Kna1` — it must match the API's capitalization exactly.
+
+The project a cluster was created in is recorded in state, so pointing the provider at a different `project_id` later does not move or recreate an existing cluster. Changing the resource's own `project_id` does force a new cluster: a shoot cannot move between projects.
 
 Credentials (username, token), the target `cloud`, and the API `url` are resolved automatically from the `cleura` CLI after `cleura login`, or from explicit provider config / `CLEURA_*` environment variables; `region` and `project_id` are never taken from the CLI. See the [provider authentication guide](../index.md#authentication) for the full precedence rules (installing the latest `cleura` CLI is recommended).
 
@@ -121,6 +123,7 @@ resource "cleura_gardener_shoot" "example" {
 - `hibernation_schedules` (Attributes List) Optional and Computed list of automated hibernation windows that scale the cluster down and back up on a schedule. Omit to leave hibernation unmanaged (current schedules are read back into state). Applied in place. (see [below for nested schema](#nestedatt--hibernation_schedules))
 - `maintenance` (Attributes) Optional and Computed maintenance settings (auto-update behavior and the daily maintenance time window). If omitted, Gardener assigns defaults that are read back into state. Applied in place. (see [below for nested schema](#nestedatt--maintenance))
 - `networking` (Attributes) Optional and Computed cluster networking configuration (CNI type, Cilium options, and the computed node CIDR). If omitted, the API's networking is read back into state. `type` is immutable; only `cilium_provider_config` is editable in place. (see [below for nested schema](#nestedatt--networking))
+- `project_id` (String) OpenStack project the cluster is created in. Defaults to the provider's `project_id`. Set it explicitly to place the cluster in a project created in the same configuration — the provider's `project_id` must be known before the run starts, so it cannot refer to a `cleura_openstack_project` this provider manages. Recorded in state, so changing the provider's `project_id` later does not move an existing cluster. Changing it forces a new cluster.
 
 ### Read-Only
 
@@ -308,14 +311,46 @@ valueless taint; that is also how a taint with no value reads back.
 
 On create, `networking.type` and `cilium_provider_config` are both settable. On update, only `cilium_provider_config` can change in place; `type` is immutable as described above. Within `cilium_provider_config`, `tunnel` is one of `vxlan`, `geneve`, or `disabled`, and `encryption_mode` is `wireguard`.
 
+## Creating the project and the cluster together
+
+A project and a cluster inside it can be created in one configuration, because `project_id` is set on the resource rather than the provider. The provider's own `project_id` must be resolvable before the run starts, so it can never refer to a project this provider creates.
+
+```terraform
+provider "cleura" {
+  cloud  = "public"
+  region = "Sto2"
+  # No project_id: each Gardener resource names its own.
+}
+
+resource "cleura_openstack_project" "tenant" {
+  name        = "tenant-acme"
+  description = "Project for the ACME tenant"
+}
+
+resource "cleura_gardener_shoot" "tenant" {
+  project_id         = cleura_openstack_project.tenant.id
+  name               = "acme"
+  kubernetes_version = "1.35.8"
+  # ... workers and the rest as above
+}
+
+resource "cleura_gardener_shoot_kubeconfig" "tenant" {
+  project_id         = cleura_gardener_shoot.tenant.project_id
+  shoot_name         = cleura_gardener_shoot.tenant.name
+  expiration_seconds = 3600
+}
+```
+
+The shoot prepares its project for Gardener as part of create, so no separate bootstrap step is needed. That preparation **cannot be undone** — see the note above.
+
 ## Import
 
-A shoot is imported by its `id`, `<project_id>/<name>`, or by its name alone. `cloud` and `region` — and, for a bare name, `project_id` — are taken from the provider configuration, so make sure the provider is configured for the project that owns the cluster; an `id` naming a different project is rejected.
+A shoot is imported by its `id`, `<project_id>/<name>`, or by its name alone. `cloud` and `region` are taken from the provider configuration. With a bare name the project is the provider's `project_id`; with an `id` it is the project named there, so a cluster in another project can be imported too — the provider's credentials need access to that project.
 
 ```shell
 # A shoot is imported by its id, <project_id>/<name>, or by its name alone.
-# cloud, region, and project_id come from the provider configuration, so
-# configure the provider for the project that owns the cluster before importing.
+# cloud and region come from the provider configuration. A bare name uses the
+# provider's project_id; an id may name any project the credentials can access.
 terraform import cleura_gardener_shoot.example 0f3c1e2a4b5d6e7f8091a2b3c4d5e6f7/my-cluster-name
 terraform import cleura_gardener_shoot.example my-cluster-name
 ```

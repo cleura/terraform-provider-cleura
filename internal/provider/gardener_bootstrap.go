@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 )
 
-// ensureBootstrapped prepares the provider's project for Gardener. A project
+// ensureBootstrapped prepares projectID for Gardener. A project
 // must be bootstrapped before a shoot can be created in it, and the API offers
 // no way to ask whether it already is: GET and DELETE on the bootstrap path
 // both answer 404, so there is nothing to read and nothing to undo.
@@ -22,10 +22,10 @@ import (
 // not promised by the API — see item 26 in
 // .agent/cleura-api-wishlist-gardener.md, which asks for it to be documented
 // along with a status GET that would make this call unnecessary.
-func ensureBootstrapped(ctx context.Context, cfg *ProviderConfig) diag.Diagnostics {
+func ensureBootstrapped(ctx context.Context, cfg *ProviderConfig, projectID string) diag.Diagnostics {
 	var diags diag.Diagnostics
 
-	response, err := cfg.Client.GardenerCommunicationBootstrap(ctx, cfg.Cloud, cfg.Region, cfg.ProjectID)
+	response, err := cfg.Client.GardenerCommunicationBootstrap(ctx, cfg.Cloud, cfg.Region, projectID)
 	if err != nil {
 		diags.AddError("Failed to prepare the project for Gardener", err.Error())
 		return diags
@@ -40,8 +40,8 @@ func ensureBootstrapped(ctx context.Context, cfg *ProviderConfig) diag.Diagnosti
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		diags.AddError(
-			fmt.Sprintf("Failed to prepare project %s for Gardener (HTTP %d)", cfg.ProjectID, response.StatusCode),
-			bootstrapErrorDetail(response.StatusCode, cfg.ProjectID, body))
+			fmt.Sprintf("Failed to prepare project %s for Gardener (HTTP %d)", projectID, response.StatusCode),
+			bootstrapErrorDetail(response.StatusCode, projectID, body))
 	}
 	return diags
 }
