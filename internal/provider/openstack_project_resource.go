@@ -56,7 +56,7 @@ func (r *openstackProjectResource) Schema(_ context.Context, _ resource.SchemaRe
 		MarkdownDescription: "Manages an OpenStack (Keystone) project in your Cleura account. Projects live in an " +
 			"OpenStack domain; by default the provider uses the domain that serves the provider's `region`, " +
 			"and `domain_id` overrides that. `name`, `description`, and `enabled` are updated in place.\n\n" +
-			"**Creating a project is irreversible: Cleura projects cannot be deleted, only disabled.** " +
+			"**Projects in Cleura are permanent: a project can be disabled but not deleted.** " +
 			"`terraform destroy` therefore sets `enabled = false`, removes the project from state, and leaves the " +
 			"disabled project in Cleura, where it still counts toward the account's project quota. Re-enable it " +
 			"from the Cleura Cloud control panel or by importing it again with `enabled = true`.\n\n" +

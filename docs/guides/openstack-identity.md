@@ -3,7 +3,7 @@
 page_title: "OpenStack projects, users and domains"
 subcategory: "Guides"
 description: |-
-  How the OpenStack identity resources pick an OpenStack domain, what domain_id does, and what to expect from projects that cannot be deleted.
+  How the OpenStack identity resources pick an OpenStack domain, what domain_id does, and how projects are retired.
 ---
 
 # OpenStack projects, users and domains
@@ -74,29 +74,21 @@ cleura openstack domain list
 For `cleura_openstack_role_assignment`, the user and the project must be in the **same**
 domain (the one the resource resolves or you set).
 
-## Projects cannot be deleted
+## Retiring a project
 
-Cleura projects are **never deleted**; disabling them is how Cleura retires a project. The
-provider follows that:
+Projects in Cleura are permanent: a project is retired by disabling it. The provider follows
+that:
 
-- `terraform plan` warns **"Project creation is irreversible"** before a project is created.
+- `terraform plan` warns before a project is created.
 - `terraform destroy` **disables** the project (`enabled = false`), removes it from state, and
-  warns. The disabled project remains in Cleura and **still counts toward your account's project
-  quota**. Re-enable it from the Cleura Cloud control panel, or `terraform import` it again with
+  warns. The project remains in Cleura and counts toward your account's project quota.
+  Re-enable it from the Cleura Cloud control panel, or `terraform import` it again with
   `enabled = true`.
 
 Create projects deliberately, and prefer disabling and re-enabling a project over destroying
 and recreating it.
 
-## Reads can lag behind writes
-
-The Cleura API's project and role listings can take **minutes** to reflect a change, and two
-consecutive reads may briefly disagree. Consequences you may notice:
-
-- A `terraform plan` right after an `apply` can show the change you just applied as pending
-  again. Wait a few minutes and plan again; re-applying is harmless.
-- The provider waits for role revocations to settle (up to 60 seconds) before an apply
-  finishes, but a plan run immediately afterwards may still list a revoked role.
+## Visibility
 
 Only projects the provider's API user can access are listed, so a project created by another
 account user is not visible; the provider keeps the last known state and warns instead of

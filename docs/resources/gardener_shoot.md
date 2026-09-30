@@ -15,7 +15,7 @@ The project a cluster was created in is recorded in state, so pointing the provi
 
 Credentials (username, token), the target `cloud`, and the API `url` are resolved automatically from the `cleura` CLI after `cleura login`, or from explicit provider config / `CLEURA_*` environment variables; `region` and `project_id` are never taken from the CLI. See the [provider authentication guide](../index.md#authentication) for the full precedence rules (installing the latest `cleura` CLI is recommended).
 
-~> **Creating a shoot prepares the project for Gardener.** A Cleura project must be bootstrapped before it can hold a shoot, so creating one does that first — no separate step is needed for a project created by [`cleura_openstack_project`](./openstack_project.md) in the same configuration. Preparing a project provisions supporting resources in it and **cannot be undone**: the API has no teardown, and destroying the shoot does not reverse it. The API also cannot report whether a project is already prepared, so the call is made on every create; repeating it on an already-prepared project is a no-op.
+~> **Creating a shoot prepares the project for Gardener.** A Cleura project must be bootstrapped before it can hold a shoot, so creating one does that first — no separate step is needed for a project created by [`cleura_openstack_project`](./openstack_project.md) in the same configuration. Preparing a project provisions supporting resources in it and is **permanent**: destroying the shoot does not reverse it. The step runs on every create and has no effect on a project that is already prepared.
 
 ~> **Reconciliation takes time.** Creating a shoot, and most updates (worker-group changes, version upgrades, HA changes), trigger a Gardener reconcile that runs for **several minutes**. Terraform blocks until the cluster reports ready, so applies against this resource are expected to be slow. If a create times out or fails mid-reconcile, the cluster is still tracked in state (tainted) so a later `terraform destroy` or re-apply can clean it up rather than orphaning it.
 
@@ -294,16 +294,13 @@ Worker groups, by contrast, are reconciled **in place**: they are matched by the
 
 ### Worker machine image
 
-`shoot_provider.workers[*].machine.image_name` is **read-only in practice**. The API's
-write schema carries only the image version, while reads still return the image name, so
-a value set in the configuration is not sent. The public cloud profile offers a single
+`shoot_provider.workers[*].machine.image_name` is **read-only in practice**: only
+`image_version` is applied, and the image name is read back from Cleura. The public cloud profile offers a single
 image (`gardenlinux`), so nothing is currently unreachable — but set `image_version` to
 pin a version, and treat `image_name` as something you read back rather than choose.
 
-The API now accepts a taint with no value — a key and an effect are enough in Kubernetes —
-but `taints[*].value` is still **Required** in this provider's schema, which is generated
-from the API spec and has not been regenerated for that change. Write `value = ""` for a
-valueless taint; that is also how a taint with no value reads back.
+A taint needs only a key and an effect. For a taint without a value, set `value = ""`;
+that is also how such a taint reads back.
 
 ### Calico vs. Cilium
 

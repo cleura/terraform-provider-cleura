@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.1
+
+A documentation-only release; the provider behaves exactly as in v0.3.0.
+
+### Changed
+
+- **Clearer, shorter documentation.** Notes on resource pages now describe
+  what to expect and what to do, without implementation detail: the
+  kubeconfig, project, role assignment and shoot pages, and the
+  authentication and OpenStack identity guides.
+
 ## v0.3.0
 
 This release adds OpenStack project, user and role-assignment resources, lets a
@@ -9,8 +20,8 @@ Gardener cluster name its own project, and gives both Gardener resources an `id`
 
 - **`cleura_openstack_project` resource** to create and manage OpenStack (Keystone)
   projects: name, description, and enabled state, in the domain serving the
-  provider's region (or an explicit `domain_id`). Destroying the resource
-  disables the project, because the Cleura API has no project deletion.
+  provider's region (or an explicit `domain_id`). Projects in Cleura are
+  permanent, so destroying the resource disables the project.
 - **`cleura_openstack_user` resource** to create and manage OpenStack users with a
   write-only password (Terraform 1.11+), description, and enabled state.
 - **`cleura_openstack_role_assignment` resource** to grant a user roles on a
@@ -20,14 +31,12 @@ Gardener cluster name its own project, and gives both Gardener resources an `id`
 - **`cleura_gardener_shoot` now prepares its project for Gardener itself.** A
   project must be bootstrapped before it can hold a shoot; creating a shoot now
   does that first, so a project created by `cleura_openstack_project` in the same
-  configuration works with no extra step. The API has no way to report whether a
-  project is already prepared, so the call is made on every create — measured
-  live, repeating it on an already-prepared project is a no-op.
-- **`expires_at` on `cleura_gardener_shoot_kubeconfig`.** The API now returns the
-  expiry it granted, so rotation is driven by that instead of an estimate. The
-  provider used to stamp the local mint time into `last_applied` and add the
-  *requested* `expiration_seconds`, which diverged whenever the API clamped the
-  lifetime.
+  configuration works with no extra step. The step runs on every create and has
+  no effect on a project that is already prepared.
+- **`expires_at` on `cleura_gardener_shoot_kubeconfig`**, the expiry Cleura
+  granted. Rotation is now based on it instead of an estimate from the
+  requested `expiration_seconds`, so it stays correct when the granted lifetime
+  is shorter than requested.
 - **`id` on `cleura_gardener_shoot` and `cleura_gardener_shoot_kubeconfig`.**
   Both are `<project_id>/<name>`; for a kubeconfig, that is the cluster it
   belongs to. Tools that identify resources by their `id` can now track them.
@@ -44,19 +53,14 @@ Gardener cluster name its own project, and gives both Gardener resources an `id`
 
 ### Changed
 
-- Write-only passwords are now stripped from API error messages. The Cleura API
-  echoes request fields in some validation errors, which could have put a
-  `cleura_openstack_user` password into console output and CI logs even though it
-  never reaches Terraform state.
+- Write-only passwords are now removed from error messages, so a
+  `cleura_openstack_user` password can never appear in console output or CI
+  logs. It never reaches Terraform state either.
 - Upgraded to `cleura-client-go` v0.3.0.
 - Upgraded `google.golang.org/grpc` to v1.83.2, which fixes three advisories in
   earlier versions (two high, one medium).
-- **Worker taint values may be omitted by the API.** A taint with only a key and
-  an effect is valid in Kubernetes, and the API now models that as a missing
-  field. `taints[*].value` remains **Required** in the provider schema, which is
-  generated from the API spec and has not been regenerated for this change, so a
-  taint with no value reads back as `""` — write `value = ""` for a valueless
-  taint.
+- **Worker taints without a value.** A taint needs only a key and an effect.
+  Such a taint reads back with `value = ""`; write `value = ""` to configure one.
 
 ### Fixed
 
@@ -82,10 +86,10 @@ Gardener cluster name its own project, and gives both Gardener resources an `id`
 
 ### Known issues
 
-- **`image_name` on worker machines is effectively read-only.** The API write schema
-  (as of `cleura-client-go` v0.3.0) carries only the image version, while reads still return the
-  image name, so a configured `image_name` is not sent. The public cloud profile
-  offers a single image (`gardenlinux`), so no image is currently unreachable.
+- **`image_name` on worker machines is effectively read-only.** Only
+  `image_version` is applied; the image name is read back from Cleura, so a
+  configured `image_name` has no effect. The public cloud profile offers a single
+  image (`gardenlinux`), so no image is currently unreachable.
 
 ## v0.2.0
 
