@@ -2,7 +2,7 @@ terraform {
   required_providers {
     cleura = {
       source  = "cleura/cleura"
-      version = "~> 0.2"
+      version = "~> 0.3"
     }
   }
 }
@@ -14,9 +14,9 @@ terraform {
 # To override, set the username/token attributes below or the CLEURA_API_*
 # environment variables; both take precedence over the CLI.
 #
-# region and project_id are always set here (or via CLEURA_REGION /
-# CLEURA_PROJECT_ID) and are never taken from the CLI. project_id is only
-# required for the Gardener resources.
+# region and project_id are never taken from the CLI: set them here (or via
+# CLEURA_REGION / CLEURA_PROJECT_ID). project_id is the default for the Gardener
+# resources, which can also set their own.
 provider "cleura" {
   cloud      = "public" # "public", "compliant", or a private cloud name
   region     = "Sto2"

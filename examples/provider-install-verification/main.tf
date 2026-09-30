@@ -2,21 +2,21 @@ terraform {
   required_providers {
     cleura = {
       source  = "cleura/cleura"
-      version = "~> 0.2"
+      version = "~> 0.3"
     }
   }
 }
 
 provider "cleura" {
   region     = "Sto2"
-  project_id = "8a22c50af68e45c6b4dd7722cce8f93a"
+  project_id = "0f3c1e2a4b5d6e7f8091a2b3c4d5e6f7"
 }
 
 # Reference example: every optional cleura_gardener_shoot attribute illustrated.
 # Values below match public cloud / Sto2 cloud profile (see GET .../cloud-profiles).
 resource "cleura_gardener_shoot" "example" {
   name               = "kekwait2"
-  kubernetes_version = "1.35.6"
+  kubernetes_version = "1.35.8"
 
   allowed_cidrs = []
 
@@ -74,7 +74,7 @@ resource "cleura_gardener_shoot" "example" {
         name = "wg-primary"
         machine = {
           image_name    = "gardenlinux"
-          image_version = "1877.19.0"
+          image_version = "1877.24.0"
           type          = "b.2c4gb"
         }
         minimum     = 2
@@ -103,7 +103,7 @@ resource "cleura_gardener_shoot" "example" {
         name = "wg-batch"
         machine = {
           image_name    = "gardenlinux"
-          image_version = "1877.19.0"
+          image_version = "1877.24.0"
           type          = "b.4c8gb"
         }
         minimum     = 1

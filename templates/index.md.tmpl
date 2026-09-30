@@ -8,7 +8,7 @@ description: |-
 # {{ .RenderedProviderName }} Provider
 
 A Terraform or OpenTofu provider for [Cleura Cloud](https://cleura.com/) — manage Cleura's managed
-services (managed Kubernetes today) as code, alongside the OpenStack provider that handles the
+services (managed Kubernetes, and OpenStack projects and users) as code, alongside the OpenStack provider that handles the
 underlying infrastructure. Works against both the Public and Compliant clouds.
 
 ~> **Warning:** This provider is in early (`0.x`) development. The Gardener cluster surface has
@@ -43,7 +43,7 @@ repository. Real-world reports directly shape what we build next.
 
 The simplest setup is the **cleura CLI**: run `cleura login` once — it handles the password and
 two-factor authentication — and the provider uses those credentials automatically, so the provider
-block only needs `cloud`, `region`, and `project_id`.
+block only needs `cloud`, `region`, and — as the default for Gardener resources — `project_id`.
 
 Credentials resolve in precedence order; the CLI is the automatic fallback, so explicit
 configuration and environment variables always override it:

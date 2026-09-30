@@ -1,7 +1,7 @@
 # A Gardener Kubernetes cluster ("shoot") on Cleura public cloud.
 resource "cleura_gardener_shoot" "example" {
   name               = "example-cluster"
-  kubernetes_version = "1.35.6"
+  kubernetes_version = "1.35.8"
 
   # Restrict Kubernetes API server access (optional).
   allowed_cidrs = ["192.168.0.0/16"]
@@ -58,7 +58,7 @@ resource "cleura_gardener_shoot" "example" {
         name = "default"
         machine = {
           image_name    = "gardenlinux"
-          image_version = "1877.19.0"
+          image_version = "1877.24.0"
           type          = "b.2c4gb"
         }
         minimum     = 2

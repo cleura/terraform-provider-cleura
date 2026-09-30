@@ -23,7 +23,7 @@ topology:
 provider "cleura" {
   cloud      = "public"           # "public", "compliant", or a private cloud name
   region     = "Sto2"             # OpenStack region tag — case-sensitive
-  project_id = "your-project-id"  # required for cleura_gardener_shoot resources
+  project_id = "your-project-id"  # default for Gardener resources; each can set its own
 
   # username / token are taken from `cleura login` automatically.
   # Set them here — or via CLEURA_API_USERNAME / CLEURA_API_TOKEN — to override.

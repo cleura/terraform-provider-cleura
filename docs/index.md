@@ -8,7 +8,7 @@ description: |-
 # cleura Provider
 
 A Terraform or OpenTofu provider for [Cleura Cloud](https://cleura.com/) — manage Cleura's managed
-services (managed Kubernetes today) as code, alongside the OpenStack provider that handles the
+services (managed Kubernetes, and OpenStack projects and users) as code, alongside the OpenStack provider that handles the
 underlying infrastructure. Works against both the Public and Compliant clouds.
 
 ~> **Warning:** This provider is in early (`0.x`) development. The Gardener cluster surface has
@@ -42,7 +42,7 @@ terraform {
   required_providers {
     cleura = {
       source  = "cleura/cleura"
-      version = "~> 0.2"
+      version = "~> 0.3"
     }
   }
 }
@@ -54,9 +54,9 @@ terraform {
 # To override, set the username/token attributes below or the CLEURA_API_*
 # environment variables; both take precedence over the CLI.
 #
-# region and project_id are always set here (or via CLEURA_REGION /
-# CLEURA_PROJECT_ID) and are never taken from the CLI. project_id is only
-# required for the Gardener resources.
+# region and project_id are never taken from the CLI: set them here (or via
+# CLEURA_REGION / CLEURA_PROJECT_ID). project_id is the default for the Gardener
+# resources, which can also set their own.
 provider "cleura" {
   cloud      = "public" # "public", "compliant", or a private cloud name
   region     = "Sto2"
@@ -71,7 +71,7 @@ provider "cleura" {
 
 The simplest setup is the **cleura CLI**: run `cleura login` once — it handles the password and
 two-factor authentication — and the provider uses those credentials automatically, so the provider
-block only needs `cloud`, `region`, and `project_id`.
+block only needs `cloud`, `region`, and — as the default for Gardener resources — `project_id`.
 
 Credentials resolve in precedence order; the CLI is the automatic fallback, so explicit
 configuration and environment variables always override it:
@@ -100,7 +100,7 @@ environment variables keep it out of your configuration and state entirely.
 
 - `cloud` (String) Cleura cloud: `public`, `compliant`, or the name of a private cloud (e.g. `acme-corp`). Used as the Gardener region tag. Only public and compliant have a default API URL; private clouds require url. May also be provided via CLEURA_CLOUD.
 - `profile` (String) cleura CLI profile to read fallback credentials from. Only consulted when username/token are not set in the configuration or environment. Defaults to the CLI's own current profile.
-- `project_id` (String) OpenStack project ID for Gardener resources. Optional when only using data sources; required for cleura_gardener_shoot and cleura_gardener_shoot_kubeconfig. May also be provided via CLEURA_PROJECT_ID.
+- `project_id` (String) Default OpenStack project ID for Gardener resources that do not set their own project_id. Not needed for data sources or the cleura_openstack_* resources. May also be provided via CLEURA_PROJECT_ID.
 - `region` (String) OpenStack region tag, matched case-sensitively — enter it exactly as Cleura reports it (e.g. Sto2, Fra1, Kna1 on public cloud; sto-com on compliant). Never read from the cleura CLI. May also be provided via CLEURA_REGION.
 - `token` (String, Sensitive) Token for Cleura Cloud API. May also be provided via CLEURA_API_TOKEN environment variable.
 - `url` (String) URI for the Cleura Cloud API. Required for private clouds. When omitted, defaults for public and compliant cloud only. May also be provided via CLEURA_API_URL.
