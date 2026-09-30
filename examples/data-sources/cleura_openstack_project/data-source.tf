@@ -6,7 +6,7 @@ data "cleura_openstack_project" "by_name" {
 
 # ... or by ID.
 data "cleura_openstack_project" "by_id" {
-  id = "8a22c50af68e45c6b4dd7722cce8f93a"
+  id = "0f3c1e2a4b5d6e7f8091a2b3c4d5e6f7"
 }
 
 output "sandbox_enabled" {

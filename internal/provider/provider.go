@@ -78,7 +78,7 @@ func (p *cleuraProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 				Optional:    true,
 			},
 			"project_id": schema.StringAttribute{
-				Description: "OpenStack project ID for Gardener resources. Optional when only using data sources; required for cleura_gardener_shoot and cleura_gardener_shoot_kubeconfig. May also be provided via CLEURA_PROJECT_ID.",
+				Description: "Default OpenStack project ID for Gardener resources that do not set their own project_id. Not needed for data sources or the cleura_openstack_* resources. May also be provided via CLEURA_PROJECT_ID.",
 				Optional:    true,
 			},
 			"url": schema.StringAttribute{

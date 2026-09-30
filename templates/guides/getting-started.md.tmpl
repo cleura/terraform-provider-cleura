@@ -85,7 +85,7 @@ terraform {
   required_providers {
     cleura = {
       source  = "cleura/cleura"
-      version = "~> 0.2"
+      version = "~> 0.3"
     }
   }
 }
@@ -101,9 +101,11 @@ provider "cleura" {
 region tags such as `Sto2`, `Fra1`, and `Kna1`, and matching is case-sensitive.
 Use the tag exactly as Cleura reports it — `Sto2`, not `sto2`.
 
-**Finding your `project_id`.** `region` and `project_id` are always taken from
-the provider configuration (or the `CLEURA_REGION` / `CLEURA_PROJECT_ID`
-environment variables) and are never read from the CLI. The fastest way to get
+**Finding your `project_id`.** `region` and `project_id` are never read from the
+CLI: they come from the provider configuration (or the `CLEURA_REGION` /
+`CLEURA_PROJECT_ID` environment variables). A Gardener resource can also set its
+own `project_id`, which is how a cluster goes into a project created in the same
+configuration — see [Creating the project and the cluster together](../resources/gardener_shoot.md#creating-the-project-and-the-cluster-together). The fastest way to get
 the ID is the CLI you just installed:
 
 ```shell
@@ -143,7 +145,7 @@ shoot **name must be 15 characters or fewer** (letters, digits, and hyphens).
 ```terraform
 resource "cleura_gardener_shoot" "demo" {
   name               = "demo" # 15 characters max
-  kubernetes_version = "1.35.6"
+  kubernetes_version = "1.35.8"
 
   shoot_provider = {
     load_balancer_provider = "amphora"
@@ -158,7 +160,7 @@ resource "cleura_gardener_shoot" "demo" {
         name = "default"
         machine = {
           image_name    = "gardenlinux"
-          image_version = "1877.19.0"
+          image_version = "1877.24.0"
           type          = "b.2c4gb"
         }
         minimum     = 1
@@ -285,7 +287,8 @@ and state.
 
 ## 7. Using the OpenStack provider alongside this one
 
-This provider manages Cleura's **managed services** — Gardener Kubernetes today.
+This provider manages Cleura's **managed services** — Gardener Kubernetes — and
+OpenStack identity: projects, users, and their roles.
 The infrastructure underneath those services — networks, routers, security
 groups, floating IP pools, images, volumes, and standalone compute — lives in
 OpenStack and is managed with the
@@ -297,7 +300,7 @@ terraform {
   required_providers {
     cleura = {
       source  = "cleura/cleura"
-      version = "~> 0.2"
+      version = "~> 0.3"
     }
     openstack = {
       source = "terraform-provider-openstack/openstack"
@@ -323,7 +326,8 @@ provider "openstack" {
 Rough division of labor:
 
 - **`cleura` provider** — Gardener shoots, their worker groups, and kubeconfigs
-  (the managed Kubernetes control plane and node pools).
+  (the managed Kubernetes control plane and node pools), plus OpenStack projects,
+  users, and role assignments.
 - **OpenStack provider** — the tenant's networking, storage, images, keypairs,
   and any VMs you run outside Gardener.
 

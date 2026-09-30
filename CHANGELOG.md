@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## v0.3.0
+
+This release adds OpenStack project, user and role-assignment resources, lets a
+Gardener cluster name its own project, and gives both Gardener resources an `id`.
 
 ### Added
 
@@ -46,6 +49,8 @@
   `cleura_openstack_user` password into console output and CI logs even though it
   never reaches Terraform state.
 - Upgraded to `cleura-client-go` v0.3.0.
+- Upgraded `google.golang.org/grpc` to v1.83.2, which fixes three advisories in
+  earlier versions (two high, one medium).
 - **Worker taint values may be omitted by the API.** A taint with only a key and
   an effect is valid in Kubernetes, and the API now models that as a missing
   field. `taints[*].value` remains **Required** in the provider schema, which is
@@ -77,8 +82,8 @@
 
 ### Known issues
 
-- **`image_name` on worker machines is effectively read-only.** The v0.3.0 API
-  write schema carries only the image version, while reads still return the
+- **`image_name` on worker machines is effectively read-only.** The API write schema
+  (as of `cleura-client-go` v0.3.0) carries only the image version, while reads still return the
   image name, so a configured `image_name` is not sent. The public cloud profile
   offers a single image (`gardenlinux`), so no image is currently unreachable.
 

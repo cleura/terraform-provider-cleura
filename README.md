@@ -1,7 +1,7 @@
 # Terraform Provider Cleura
 
 A Terraform or OpenTofu provider for [Cleura Cloud](https://cleura.com/) — manage Cleura's managed
-services (managed Kubernetes today) as code, alongside the OpenStack provider that handles the
+services (managed Kubernetes, and OpenStack projects and users) as code, alongside the OpenStack provider that handles the
 underlying infrastructure. Published on the
 [Terraform Registry](https://registry.terraform.io/providers/cleura/cleura); works against both
 the Public and Compliant clouds.
@@ -59,7 +59,7 @@ provider "cleura" {
 
 resource "cleura_gardener_shoot" "example" {
   name               = "example-cluster"
-  kubernetes_version = "1.35.6"
+  kubernetes_version = "1.35.8"
 
   shoot_provider = {
     load_balancer_provider = "amphora"
@@ -73,7 +73,7 @@ resource "cleura_gardener_shoot" "example" {
         name = "default"
         machine = {
           image_name    = "gardenlinux"
-          image_version = "1877.19.0"
+          image_version = "1877.24.0"
           type          = "b.2c4gb"
         }
         minimum     = 2
@@ -101,7 +101,7 @@ windows — is documented under [`docs/`](./docs) and on the Terraform Registry.
 
 The simplest setup is the **cleura CLI**: run `cleura login` once and the
 provider uses those credentials automatically — the provider block then needs
-only `cloud`, `region`, and `project_id`. No token in configuration, no
+only `cloud`, `region`, and (as the default for Gardener resources) `project_id`. No token in configuration, no
 environment variables to manage.
 
 Credentials resolve in precedence order (the first tier that provides a value
@@ -127,8 +127,9 @@ and environment variables always override it:
    short-lived: if a plan fails with an authentication error, re-run
    `cleura login`.
 
-Only **credentials** come from the CLI. `region` and `project_id` must always
-be stated in the provider configuration (or their environment variables):
+Only **credentials** come from the CLI. `region` and `project_id` are never read
+from it — `region` comes from the provider configuration (or `CLEURA_REGION`),
+and `project_id` from the resource or the provider (or `CLEURA_PROJECT_ID`):
 where infrastructure lives should never depend on the operator's CLI profile.
 
 Credentials are read once, when the provider is configured: a token expiring
@@ -237,8 +238,8 @@ Documentation under `docs/` is generated separately (it is not part of `generate
 make docs
 ```
 
-The provider index page is rendered from the template in `templates/`; resource and data-source
-pages are generated from the schema.
+Every page is rendered from its template in `templates/`, with attribute reference sections
+generated from the schema.
 
 ## Test
 
