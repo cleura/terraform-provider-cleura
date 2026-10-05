@@ -62,6 +62,12 @@ func TestParseShootImportID(t *testing.T) {
 type mockShootAPI struct {
 	mu     sync.Mutex
 	shoots map[string]bool // names of the shoots that exist
+	// auth maps a shoot to its authentication configuration. A PATCH leaves it
+	// unchanged when the field is absent and removes it on an explicit null.
+	auth    map[string]string
+	patches []map[string]json.RawMessage // raw PATCH bodies, in order
+	// issuers serves the issuers listing of each authentication configuration.
+	issuers map[string][]api.GardenerIdentityProviderIssuerReference
 	// failReconcile makes the shoot's last operation fail, so Create stops
 	// after it has persisted the shoot but before the refresh that follows.
 	failReconcile bool
@@ -119,8 +125,51 @@ func (m *mockShootAPI) handler() http.Handler {
 			m.shoots = map[string]bool{}
 		}
 		m.shoots[body.Name] = true
+		if body.AuthenticationConfigurationName != nil {
+			m.setAuth(body.Name, *body.AuthenticationConfigurationName)
+		}
 		m.mu.Unlock()
 		writeJSON(w, 201, testShoot(body.Name))
+	})
+	mux.HandleFunc("PATCH "+shoots+"/{shoot}", func(w http.ResponseWriter, r *http.Request) {
+		var raw map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+			apiError(w, 400, err.Error())
+			return
+		}
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		name := r.PathValue("shoot")
+		m.patches = append(m.patches, raw)
+		if v, present := raw["authentication_configuration_name"]; present {
+			var cfg *string
+			_ = json.Unmarshal(v, &cfg)
+			if cfg == nil {
+				delete(m.auth, name)
+			} else {
+				m.setAuth(name, *cfg)
+			}
+		}
+		writeJSON(w, 202, m.shoot(name))
+	})
+	mux.HandleFunc("GET /gardener/v2/public/authentication-configurations/{name}/issuers", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		issuers, ok := m.issuers[r.PathValue("name")]
+		if !ok {
+			apiError(w, 404, "not found")
+			return
+		}
+		writeJSON(w, 200, issuers)
+	})
+	mux.HandleFunc("GET "+shoots+"/{shoot}/kubeconfig/{alias}/{key}", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if m.auth[r.PathValue("shoot")] == "" {
+			apiError(w, 409, "The shoot has no authentication configuration.")
+			return
+		}
+		writeJSON(w, 200, api.GardenerIdentityProviderOidcKubeconfig{Kubeconfig: "kubeconfig for " + r.PathValue("alias") + "/" + r.PathValue("key")})
 	})
 	mux.HandleFunc("GET "+shoots+"/{shoot}", func(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()
@@ -129,7 +178,7 @@ func (m *mockShootAPI) handler() http.Handler {
 			apiError(w, 404, "Not Found")
 			return
 		}
-		shoot := testShoot(r.PathValue("shoot"))
+		shoot := m.shoot(r.PathValue("shoot"))
 		if m.failReconcile {
 			shoot.LastOperation.State = api.GardenerShootLastOperationStateFailed
 			shoot.LastOperation.Progress = 40
@@ -319,4 +368,21 @@ resource "cleura_gardener_shoot_kubeconfig" "test" {
   shoot_name         = cleura_gardener_shoot.test.name
   expiration_seconds = 3600
 }`)
+}
+
+// setAuth records a shoot's authentication configuration; callers hold m.mu.
+func (m *mockShootAPI) setAuth(shoot, cfg string) {
+	if m.auth == nil {
+		m.auth = map[string]string{}
+	}
+	m.auth[shoot] = cfg
+}
+
+// shoot renders a shoot with its authentication configuration; callers hold m.mu.
+func (m *mockShootAPI) shoot(name string) api.GardenerShootShoot {
+	s := testShoot(name)
+	if cfg, ok := m.auth[name]; ok {
+		s.Kubernetes.AuthenticationConfigurationName = &cfg
+	}
+	return s
 }

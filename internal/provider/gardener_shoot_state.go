@@ -90,6 +90,23 @@ func setShootState(ctx context.Context, cfg *ProviderConfig, projectID string, s
 		return
 	}
 	data.ID = types.StringValue(shootID(projectID, data.Name.ValueString()))
+	data.AuthenticationConfigurationName = optionalStringValue(shootCluster.Kubernetes.AuthenticationConfigurationName)
+}
+
+// editShootRequestBody encodes a shoot edit. The generated client leaves out a
+// nil authentication_configuration_name, which the API reads as "unchanged",
+// so removing the configuration adds an explicit null to the JSON.
+func editShootRequestBody(body api.GardenerEditShootJSONRequestBody, detachAuthentication bool) ([]byte, error) {
+	encoded, err := json.Marshal(body)
+	if err != nil || !detachAuthentication {
+		return encoded, err
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		return nil, err
+	}
+	fields["authentication_configuration_name"] = nil
+	return json.Marshal(fields)
 }
 
 // SetShootStateValues maps a shoot as the API returned it into data. Callers

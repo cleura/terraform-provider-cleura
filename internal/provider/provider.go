@@ -364,6 +364,7 @@ func (p *cleuraProvider) DataSources(_ context.Context) []func() datasource.Data
 		NewProjectDataSource,
 		NewOpenStackProjectDataSource,
 		NewOpenStackUserDataSource,
+		NewGardenerShootOIDCKubeconfigDataSource,
 	}
 }
 
