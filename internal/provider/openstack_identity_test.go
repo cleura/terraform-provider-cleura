@@ -20,7 +20,7 @@ func domain(id, name, areaName string, regionTags ...string) api.CommonOpenStack
 	for i, tag := range regionTags {
 		regions = append(regions, api.CommonOpenStackRegion{Id: i + 1, Name: tag, Tag: tag})
 	}
-	return api.CommonOpenStackDomain{Id: id, Name: strp(name), Status: "active", Area: api.CommonOpenStackDomainArea{Id: 1, Name: areaName, Tag: strings.ToLower(areaName), Regions: regions}}
+	return api.CommonOpenStackDomain{Id: strp(id), Name: strp(name), Status: "active", Area: api.CommonOpenStackDomainArea{Id: 1, Name: areaName, Tag: strings.ToLower(areaName), Regions: regions}}
 }
 
 func TestDomainForRegion(t *testing.T) {
@@ -210,5 +210,33 @@ func TestSetDiff(t *testing.T) {
 	added, removed = setDiff([]string{"a"}, []string{"a"})
 	if len(added) != 0 || len(removed) != 0 {
 		t.Errorf("identical sets: got added=%v removed=%v", added, removed)
+	}
+}
+
+// TestListDomainsSkipsRequestableAreas: the domain listing also returns areas
+// the account could request but does not have (status "available", no id).
+// They are not domains, so they must not be matched by region or listed.
+func TestListDomainsSkipsRequestableAreas(t *testing.T) {
+	cfg := newTestConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sto := "CCP_Domain_1"
+		writeJSON(w, 200, []api.CommonOpenStackDomain{
+			{Id: strp("dom-sto"), Name: &sto, Status: "provisioned", Area: api.CommonOpenStackDomainArea{
+				Id: 1, Name: "Stockholm", Tag: "sto", Regions: []api.CommonOpenStackRegion{{Id: 1, Name: "Stockholm 2", Tag: "Sto2"}}}},
+			// A requestable area for the same region: no id, no name.
+			{Status: "available", Area: api.CommonOpenStackDomainArea{
+				Id: 1, Name: "Stockholm", Tag: "sto", Regions: []api.CommonOpenStackRegion{{Id: 1, Name: "Stockholm 2", Tag: "Sto2"}}}},
+		})
+	}))
+
+	domains, err := listDomains(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(domains) != 1 || domainIDOf(domains[0]) != "dom-sto" {
+		t.Fatalf("listDomains returned %d domains; want only dom-sto", len(domains))
+	}
+	id, err := domainForRegion(domains, "Sto2")
+	if err != nil || id != "dom-sto" {
+		t.Fatalf("domainForRegion = %q, %v; want dom-sto", id, err)
 	}
 }

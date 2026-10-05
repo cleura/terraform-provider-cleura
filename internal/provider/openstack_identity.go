@@ -173,16 +173,34 @@ func optionalStringValue(s *string) types.String {
 // ----- domains -----
 
 // listDomains fetches the account's OpenStack domains.
+//
+// The listing also includes domain areas the account could request but does
+// not have (status "available"). Those carry no id, because there is no domain
+// behind them, so they are dropped here: every domain this returns has an id.
 func listDomains(ctx context.Context, cfg *ProviderConfig) ([]api.CommonOpenStackDomain, error) {
 	resp, err := cfg.Client.OpenStackIdentityListDomains(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing OpenStack domains: %w", err)
 	}
-	var domains []api.CommonOpenStackDomain
-	if err := decodeJSON(resp, &domains); err != nil {
+	var listed []api.CommonOpenStackDomain
+	if err := decodeJSON(resp, &listed); err != nil {
 		return nil, fmt.Errorf("listing OpenStack domains: %w", err)
 	}
+	domains := make([]api.CommonOpenStackDomain, 0, len(listed))
+	for _, d := range listed {
+		if domainIDOf(d) != "" {
+			domains = append(domains, d)
+		}
+	}
 	return domains, nil
+}
+
+// domainIDOf returns a domain's id. listDomains only returns domains that have one.
+func domainIDOf(d api.CommonOpenStackDomain) string {
+	if d.Id == nil {
+		return ""
+	}
+	return *d.Id
 }
 
 // domainForRegion picks the domain that serves region from the account's
@@ -204,11 +222,11 @@ func domainForRegion(domains []api.CommonOpenStackDomain, region string) (string
 	}
 	switch {
 	case len(matches) == 1:
-		return matches[0].Id, nil
+		return domainIDOf(matches[0]), nil
 	case len(domains) == 0:
 		return "", errors.New("the account has no OpenStack domains")
 	case len(matches) == 0 && len(domains) == 1:
-		return domains[0].Id, nil
+		return domainIDOf(domains[0]), nil
 	case len(matches) == 0:
 		return "", fmt.Errorf("none of the account's %d OpenStack domains serves region %q; set domain_id explicitly. Available domains: %s",
 			len(domains), region, describeDomains(domains))
@@ -222,7 +240,7 @@ func domainForRegion(domains []api.CommonOpenStackDomain, region string) (string
 func describeDomains(domains []api.CommonOpenStackDomain) string {
 	parts := make([]string, 0, len(domains))
 	for _, d := range domains {
-		label := d.Id
+		label := domainIDOf(d)
 		var extra []string
 		if d.Name != nil && *d.Name != "" {
 			extra = append(extra, *d.Name)
@@ -254,7 +272,7 @@ func domainRegionTag(ctx context.Context, cfg *ProviderConfig, domainID string) 
 		return "", fmt.Errorf("listing OpenStack domains to find a region for domain %s: %w", domainID, err)
 	}
 	for _, d := range domains {
-		if d.Id != domainID {
+		if domainIDOf(d) != domainID {
 			continue
 		}
 		// Prefer the provider's region when this domain serves it, so the probe
