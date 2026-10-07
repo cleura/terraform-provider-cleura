@@ -12,6 +12,10 @@
   - Destroying the resource waits until the service has stopped, so the volume
     can be deleted in the same run.
 
+### Changed
+
+- Upgraded to `cleura-client-go` v0.4.0.
+
 ### Fixed
 
 - **OpenStack domains that the account could request but doesn't have are
