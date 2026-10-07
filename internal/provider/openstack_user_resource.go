@@ -100,8 +100,8 @@ func (r *openstackUserResource) Schema(_ context.Context, _ resource.SchemaReque
 				Sensitive: true,
 				MarkdownDescription: "Password for the user, 8 to 1024 characters, stored in state and marked " +
 					"sensitive. Changing it updates the password in place. Use it with tools that don't support " +
-					"write-only arguments, such as Crossplane, Pulumi, or Terraform and OpenTofu before 1.11; " +
-					"otherwise prefer `password_wo`. Set exactly one of `password` and `password_wo`.\n\n" +
+					"write-only arguments, such as Crossplane, or Terraform and OpenTofu before 1.11; otherwise " +
+					"prefer `password_wo`. Set exactly one of `password` and `password_wo`. " +
 					passwordCharacterNote,
 				Validators: []validator.String{stringvalidator.LengthBetween(8, 1024)},
 			},
@@ -111,7 +111,7 @@ func (r *openstackUserResource) Schema(_ context.Context, _ resource.SchemaReque
 				WriteOnly: true,
 				MarkdownDescription: "Write-only password for the user, 8 to 1024 characters: sent to the API on " +
 					"create and whenever `password_wo_version` changes, never stored in state. Requires Terraform or " +
-					"OpenTofu 1.11 or later. Set exactly one of `password` and `password_wo`.\n\n" +
+					"OpenTofu 1.11 or later. Set exactly one of `password` and `password_wo`. " +
 					passwordCharacterNote,
 				Validators: []validator.String{stringvalidator.LengthBetween(8, 1024)},
 			},
@@ -155,8 +155,8 @@ func (r *openstackUserResource) ConfigValidators(_ context.Context) []resource.C
 	}
 }
 
-// ValidateConfig rejects password_wo_version without password_wo. Up to
-// v0.3.x, password was the write-only password and was paired with
+// ValidateConfig rejects password_wo_version without password_wo. In v0.3.0
+// and v0.3.1, password was the write-only password and was paired with
 // password_wo_version, so that pair now means "rename password to
 // password_wo". Leaving it as is would quietly start storing the password in
 // state.
@@ -178,8 +178,9 @@ func (r *openstackUserResource) ValidateConfig(ctx context.Context, req resource
 }
 
 // ModifyPlan warns when an existing user's password is about to be stored in
-// state, which happens when a configuration from v0.3.x keeps password
-// without password_wo_version, or switches from password_wo to password.
+// state, which happens when a configuration from v0.3.0 or v0.3.1 keeps
+// password without password_wo_version, or switches from password_wo to
+// password.
 func (r *openstackUserResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
 		return

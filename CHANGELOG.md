@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.3.2
+
+This release lets `cleura_openstack_user` work with tools that don't support
+write-only arguments, such as Crossplane. The write-only password is renamed to
+`password_wo`: see **Breaking changes** before upgrading.
 
 ### Breaking changes
 
@@ -14,7 +18,7 @@
 ### Added
 
 - **`cleura_openstack_user` works with tools that don't support write-only
-  arguments**, such as Crossplane, Pulumi, and Terraform or OpenTofu before 1.11.
+  arguments**, such as Crossplane, and Terraform or OpenTofu before 1.11.
   - Set `password`, which is stored in state and marked sensitive.
   - Exactly one of `password` and `password_wo` must be set.
 

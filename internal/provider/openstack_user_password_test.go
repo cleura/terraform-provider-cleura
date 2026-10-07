@@ -102,7 +102,7 @@ func TestOpenStackUserPasswordValidation(t *testing.T) {
 		{"password_wo without write-only support", false, map[string]tftypes.Value{"password_wo": tfString(pw)}, "WriteOnly Attribute Not Allowed"},
 		{"neither", true, map[string]tftypes.Value{}, "password_wo"},
 		{"both", true, map[string]tftypes.Value{"password": tfString(pw), "password_wo": tfString(pw)}, "password_wo"},
-		// The v0.3.x configuration, where password was the write-only one.
+		// The v0.3.0 and v0.3.1 configuration, where password was the write-only one.
 		{"password with password_wo_version", true, map[string]tftypes.Value{
 			"password": tfString(pw), "password_wo_version": tfString("1"),
 		}, "rename password to password_wo"},

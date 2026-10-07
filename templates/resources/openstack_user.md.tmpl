@@ -35,12 +35,12 @@ Set the password with **exactly one** of these:
   `password_wo_version` (any string, for example `"2"`); the next apply re-sends it.
 - **`password`** is stored in state, marked sensitive, and a changed value is applied on the
   next apply. Use it with tools that don't support write-only arguments, such as Crossplane,
-  Pulumi, or Terraform and OpenTofu before 1.11.
+  or Terraform and OpenTofu before 1.11.
 
 Switching between the two doesn't change the user's password by itself, and edits to other
 attributes never touch it.
 
--> **Upgrading from v0.3.x:** `password` used to be the write-only password. Rename it to
+-> **Upgrading from v0.3.0 or v0.3.1:** `password` used to be the write-only password. Rename it to
 `password_wo` to keep the password out of state. A configuration that still sets `password`
 together with `password_wo_version` fails at plan with that hint.
 
