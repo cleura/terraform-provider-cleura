@@ -22,10 +22,10 @@ func twoDomainMux(probedRegions *[]string) http.Handler {
 	mux.HandleFunc("GET /openstack/identity/v2/domains", func(w http.ResponseWriter, r *http.Request) {
 		sto, fra := "CCP_Domain_1", "CCP_Domain_2"
 		writeJSON(w, 200, []api.CommonOpenStackDomain{
-			{Id: "dom-sto", Name: &sto, Status: "provisioned", Area: api.CommonOpenStackDomainArea{
+			{Id: strp("dom-sto"), Name: &sto, Status: "provisioned", Area: api.CommonOpenStackDomainArea{
 				Id: 1, Name: "Sweden / Stockholm", Tag: "SE_STO2",
 				Regions: []api.CommonOpenStackRegion{{Id: 2, Name: "Stockholm", Tag: "Sto2"}}}},
-			{Id: "dom-fra", Name: &fra, Status: "provisioned", Area: api.CommonOpenStackDomainArea{
+			{Id: strp("dom-fra"), Name: &fra, Status: "provisioned", Area: api.CommonOpenStackDomainArea{
 				Id: 7, Name: "Germany / Frankfurt", Tag: "DE",
 				Regions: []api.CommonOpenStackRegion{{Id: 6, Name: "Frankfurt", Tag: "Fra1"}}}},
 		})

@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`cleura_openstack_volume_recovery_service` resource** to switch on Cleura's
+  Recovery service (disaster recovery) for a block volume, such as one created
+  with the OpenStack provider's `openstack_blockstorage_volume_v3`.
+  - Retention and immutability change in place.
+  - A service that is already on is taken over.
+  - Destroying the resource waits until the service has stopped, so the volume
+    can be deleted in the same run.
+
+### Changed
+
+- Upgraded to `cleura-client-go` v0.4.0.
+
+### Fixed
+
+- **OpenStack domains that the account could request but doesn't have are
+  skipped** when the provider resolves the domain for its region.
+  - Such entries have no domain behind them.
+  - A region served only by one now reports that no domain was found, rather
+    than matching an entry without an ID.
+
 ## v0.3.1
 
 A documentation-only release; the provider behaves exactly as in v0.3.0.
