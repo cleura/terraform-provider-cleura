@@ -27,11 +27,22 @@ when to set `domain_id`.
 
 ## Password handling
 
-`password` is a **write-only** argument (Terraform 1.11 or later): it is sent to the API on
-create but is never stored in state or shown in plans. Because Terraform cannot see it, it
-also cannot tell when it changes. To rotate the password, change `password` **and** bump
-`password_wo_version` (any string, for example `"2"`); the next apply re-sends the current
-`password`. Edits to other attributes never touch the password.
+Set the password with **exactly one** of these:
+
+- **`password_wo`** is **write-only**. It's sent to the API but never stored in state or shown in
+  plans, and needs Terraform or OpenTofu 1.11 or later. Because Terraform can't see it, it also
+  can't tell when it changes. To rotate it, change `password_wo` **and** bump
+  `password_wo_version` (any string, for example `"2"`); the next apply re-sends it.
+- **`password`** is stored in state, marked sensitive, and a changed value is applied on the
+  next apply. Use it with tools that don't support write-only arguments, such as Crossplane,
+  Pulumi, or Terraform and OpenTofu before 1.11.
+
+Switching between the two doesn't change the user's password by itself, and edits to other
+attributes never touch it.
+
+-> **Upgrading from v0.3.x:** `password` used to be the write-only password. Rename it to
+`password_wo` to keep the password out of state. A configuration that still sets `password`
+together with `password_wo_version` fails at plan with that hint.
 
 ## Project access
 

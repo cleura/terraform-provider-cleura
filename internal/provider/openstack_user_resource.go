@@ -6,6 +6,7 @@ import (
 	"regexp"
 
 	api "github.com/cleura/cleura-client-go/api"
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -18,8 +19,11 @@ import (
 )
 
 var (
-	_ resource.Resource                = (*openstackUserResource)(nil)
-	_ resource.ResourceWithImportState = (*openstackUserResource)(nil)
+	_ resource.Resource                     = (*openstackUserResource)(nil)
+	_ resource.ResourceWithImportState      = (*openstackUserResource)(nil)
+	_ resource.ResourceWithConfigValidators = (*openstackUserResource)(nil)
+	_ resource.ResourceWithValidateConfig   = (*openstackUserResource)(nil)
+	_ resource.ResourceWithModifyPlan       = (*openstackUserResource)(nil)
 )
 
 func NewOpenStackUserResource() resource.Resource {
@@ -35,6 +39,7 @@ type openstackUserModel struct {
 	DomainID          types.String `tfsdk:"domain_id"`
 	Name              types.String `tfsdk:"name"`
 	Password          types.String `tfsdk:"password"`
+	PasswordWo        types.String `tfsdk:"password_wo"`
 	PasswordWoVersion types.String `tfsdk:"password_wo_version"`
 	Description       types.String `tfsdk:"description"`
 	Enabled           types.Bool   `tfsdk:"enabled"`
@@ -58,8 +63,10 @@ func (r *openstackUserResource) Schema(_ context.Context, _ resource.SchemaReque
 			"authenticate against OpenStack itself (the OpenStack CLI, the OpenStack Terraform provider, ...) " +
 			"and are distinct from Cleura account users. Users live in an OpenStack domain; by default the " +
 			"provider uses the domain that serves the provider's `region`, and `domain_id` overrides that.\n\n" +
-			"The password is a write-only argument: it is sent to the API but never stored in state (requires " +
-			"Terraform 1.11 or later). Change `password_wo_version` to make the next apply re-send it.\n\n" +
+			"Set the password with exactly one of `password_wo` and `password`. `password_wo` is write-only: it " +
+			"is sent to the API but never stored in state (requires Terraform or OpenTofu 1.11 or later), and " +
+			"changing `password_wo_version` makes the next apply re-send it. `password` is stored in state, " +
+			"marked sensitive; use it with tools that don't support write-only arguments, such as Crossplane.\n\n" +
 			"A new user has no access to any project; grant project roles with `cleura_openstack_role_assignment`. " +
 			"Import an existing user with its ID.",
 		Attributes: map[string]schema.Attribute{
@@ -89,21 +96,30 @@ func (r *openstackUserResource) Schema(_ context.Context, _ resource.SchemaReque
 				},
 			},
 			"password": schema.StringAttribute{
-				Required:  true,
+				Optional:  true,
+				Sensitive: true,
+				MarkdownDescription: "Password for the user, 8 to 1024 characters, stored in state and marked " +
+					"sensitive. Changing it updates the password in place. Use it with tools that don't support " +
+					"write-only arguments, such as Crossplane, Pulumi, or Terraform and OpenTofu before 1.11; " +
+					"otherwise prefer `password_wo`. Set exactly one of `password` and `password_wo`.\n\n" +
+					passwordCharacterNote,
+				Validators: []validator.String{stringvalidator.LengthBetween(8, 1024)},
+			},
+			"password_wo": schema.StringAttribute{
+				Optional:  true,
 				Sensitive: true,
 				WriteOnly: true,
-				MarkdownDescription: "Password for the user, 8 to 1024 characters. Write-only: sent to the API on " +
-					"create and whenever `password_wo_version` changes, never stored in state. Requires Terraform 1.11+.\n\n" +
-					"The API accepts letters, numbers and the special characters ``@#!£&?<>;:.-[](){}+%\"'=^*$`` and " +
-					"space. Note that `/` is **not** accepted, so a password from `openssl rand -base64` is rejected " +
-					"at apply time; use `openssl rand -hex` or a generator restricted to the set above.",
+				MarkdownDescription: "Write-only password for the user, 8 to 1024 characters: sent to the API on " +
+					"create and whenever `password_wo_version` changes, never stored in state. Requires Terraform or " +
+					"OpenTofu 1.11 or later. Set exactly one of `password` and `password_wo`.\n\n" +
+					passwordCharacterNote,
 				Validators: []validator.String{stringvalidator.LengthBetween(8, 1024)},
 			},
 			"password_wo_version": schema.StringAttribute{
 				Optional: true,
-				MarkdownDescription: "Arbitrary version marker for the write-only `password`. Because the password is " +
+				MarkdownDescription: "Arbitrary version marker for `password_wo`. Because a write-only password is " +
 					"not stored in state, Terraform cannot detect that it changed; bump this value (e.g. `\"2\"`) to " +
-					"re-send the current `password` on the next apply.",
+					"re-send the current `password_wo` on the next apply.",
 			},
 			"description": schema.StringAttribute{
 				Optional: true,
@@ -127,6 +143,60 @@ func (r *openstackUserResource) Schema(_ context.Context, _ resource.SchemaReque
 	}
 }
 
+// passwordCharacterNote is shared by password and password_wo.
+const passwordCharacterNote = "The API accepts letters, numbers and the special characters " +
+	"``@#!£&?<>;:.-[](){}+%\"'=^*$`` and space. Note that `/` is **not** accepted, so a password from " +
+	"`openssl rand -base64` is rejected at apply time; use `openssl rand -hex` or a generator restricted to " +
+	"the set above."
+
+func (r *openstackUserResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.ExactlyOneOf(path.MatchRoot("password"), path.MatchRoot("password_wo")),
+	}
+}
+
+// ValidateConfig rejects password_wo_version without password_wo. Up to
+// v0.3.x, password was the write-only password and was paired with
+// password_wo_version, so that pair now means "rename password to
+// password_wo". Leaving it as is would quietly start storing the password in
+// state.
+func (r *openstackUserResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var config openstackUserModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() || config.PasswordWoVersion.IsNull() || !config.PasswordWo.IsNull() {
+		return
+	}
+	if !config.Password.IsNull() {
+		resp.Diagnostics.AddAttributeError(path.Root("password_wo_version"), "Rename password to password_wo",
+			"password_wo_version belongs to the write-only password_wo. password is an ordinary argument, stored "+
+				"in state. To keep the password out of state, rename password to password_wo. To store it in "+
+				"state, remove password_wo_version.")
+		return
+	}
+	resp.Diagnostics.AddAttributeError(path.Root("password_wo_version"), "password_wo_version without password_wo",
+		"password_wo_version only applies to password_wo. Set password_wo, or remove password_wo_version.")
+}
+
+// ModifyPlan warns when an existing user's password is about to be stored in
+// state, which happens when a configuration from v0.3.x keeps password
+// without password_wo_version, or switches from password_wo to password.
+func (r *openstackUserResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+		return
+	}
+	var state, plan openstackUserModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if state.Password.IsNull() && !plan.Password.IsNull() {
+		resp.Diagnostics.AddAttributeWarning(path.Root("password"), "Password will be stored in state",
+			"password is stored in Terraform state, marked sensitive. To keep the password out of state, use "+
+				"password_wo instead; it needs Terraform or OpenTofu 1.11 or later.")
+	}
+}
+
 func (r *openstackUserResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	if !require(r.config, &resp.Diagnostics, false) {
 		return
@@ -134,7 +204,7 @@ func (r *openstackUserResource) Create(ctx context.Context, req resource.CreateR
 
 	var plan, config openstackUserModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-	// The write-only password is only present in the configuration.
+	// A write-only password is only present in the configuration.
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -150,9 +220,13 @@ func (r *openstackUserResource) Create(ctx context.Context, req resource.CreateR
 	// store it, while PATCH does. So create with name and password only and
 	// apply description (and a planned enabled = false, which create cannot set
 	// either) in one follow-up edit.
+	password := config.Password.ValueString()
+	if !config.PasswordWo.IsNull() {
+		password = config.PasswordWo.ValueString()
+	}
 	body := api.OpenStackIdentityCreateUserRequest{
 		Name:     plan.Name.ValueString(),
-		Password: config.Password.ValueString(),
+		Password: password,
 	}
 	response, err := r.config.Client.OpenStackIdentityCreateUser(ctx, domainID, body)
 	if err != nil {
@@ -257,9 +331,9 @@ func (r *openstackUserResource) Update(ctx context.Context, req resource.UpdateR
 	}
 
 	// PATCH merges: send only what changed. A removed description is cleared
-	// by sending "" (an omitted field would be left untouched). The password
-	// is re-sent only when its version marker changed, so unrelated edits do
-	// not reset it.
+	// by sending "" (an omitted field would be left untouched). A stored
+	// password is sent when it changed; a write-only one only when its version
+	// marker changed. Switching between the two re-sends nothing on its own.
 	body := api.OpenStackIdentityEditUserRequest{}
 	changed := false
 	if !plan.Name.Equal(state.Name) {
@@ -275,8 +349,12 @@ func (r *openstackUserResource) Update(ctx context.Context, req resource.UpdateR
 		body.Enabled = plan.Enabled.ValueBoolPointer()
 		changed = true
 	}
-	if !plan.PasswordWoVersion.Equal(state.PasswordWoVersion) && !config.Password.IsNull() {
-		body.Password = config.Password.ValueStringPointer()
+	if !plan.Password.IsNull() && !plan.Password.Equal(state.Password) {
+		body.Password = plan.Password.ValueStringPointer()
+		changed = true
+	}
+	if !config.PasswordWo.IsNull() && !plan.PasswordWoVersion.Equal(state.PasswordWoVersion) {
+		body.Password = config.PasswordWo.ValueStringPointer()
 		changed = true
 	}
 	if !changed {
@@ -287,7 +365,7 @@ func (r *openstackUserResource) Update(ctx context.Context, req resource.UpdateR
 
 	user, err := r.edit(ctx, domainID, state.ID.ValueString(), body)
 	if err != nil {
-		resp.Diagnostics.AddError("Failed to update OpenStack user", redactSecret(err.Error(), config.Password.ValueString()))
+		resp.Diagnostics.AddError("Failed to update OpenStack user", redactSecret(err.Error(), derefOrEmpty(body.Password)))
 		return
 	}
 	setOpenStackUserState(&plan, user)
@@ -345,8 +423,6 @@ func (r *openstackUserResource) edit(ctx context.Context, domainID, id string, b
 	return userFromAccessView(&user), nil
 }
 
-// setOpenStackUserState copies the API's user into the model. The write-only
-// password stays null (the framework requires it to be absent from state).
 // derefOrEmpty reads an optional request field without a nil check at each use.
 func derefOrEmpty(v *string) string {
 	if v == nil {
@@ -355,11 +431,14 @@ func derefOrEmpty(v *string) string {
 	return *v
 }
 
+// setOpenStackUserState copies the API's user into the model. The API never
+// returns a password, so a stored password keeps the model's value, and the
+// write-only one stays null, as the framework requires.
 func setOpenStackUserState(m *openstackUserModel, u *api.OpenStackIdentityUser) {
 	m.ID = types.StringValue(u.Id)
 	m.DomainID = types.StringValue(u.DomainId)
 	m.Name = types.StringValue(u.Name)
-	m.Password = types.StringNull()
+	m.PasswordWo = types.StringNull()
 	m.Description = optionalStringValue(u.Description)
 	m.Enabled = types.BoolValue(u.Enabled)
 	m.DefaultProjectID = optionalStringValue(u.DefaultProjectId)

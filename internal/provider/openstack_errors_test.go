@@ -92,7 +92,7 @@ func TestOpenStackRoleAssignmentErrors(t *testing.T) {
 	errorCase(t, "unknown_role", `
 resource "cleura_openstack_user" "u" {
   name                = "err-user"
-  password            = "Some-Passw0rd"
+  password_wo         = "Some-Passw0rd"
   password_wo_version = "1"
 }
 
@@ -117,7 +117,7 @@ resource "cleura_openstack_role_assignment" "ra" {
 	errorCase(t, "unknown_project", `
 resource "cleura_openstack_user" "u" {
   name                = "err-user2"
-  password            = "Some-Passw0rd"
+  password_wo         = "Some-Passw0rd"
   password_wo_version = "1"
 }
 
@@ -134,7 +134,7 @@ func TestOpenStackValidatorErrors(t *testing.T) {
 	errorCase(t, "user_name_uppercase", `
 resource "cleura_openstack_user" "u" {
   name                = "Not-Lowercase"
-  password            = "Some-Passw0rd"
+  password_wo         = "Some-Passw0rd"
   password_wo_version = "1"
 }
 `, regexp.MustCompile(`(?s)lowercase letters, digits`))
@@ -142,7 +142,7 @@ resource "cleura_openstack_user" "u" {
 	errorCase(t, "user_name_too_short", `
 resource "cleura_openstack_user" "u" {
   name                = "ab"
-  password            = "Some-Passw0rd"
+  password_wo         = "Some-Passw0rd"
   password_wo_version = "1"
 }
 `, regexp.MustCompile(`(?s)3-40 characters`))
@@ -150,7 +150,7 @@ resource "cleura_openstack_user" "u" {
 	errorCase(t, "password_too_short", `
 resource "cleura_openstack_user" "u" {
   name                = "shortpw"
-  password            = "short"
+  password_wo         = "short"
   password_wo_version = "1"
 }
 `, regexp.MustCompile(`(?s)between 8 and 1024`))

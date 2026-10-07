@@ -1,5 +1,5 @@
 terraform {
-  # The password is a write-only argument, which needs Terraform 1.11 or later.
+  # password_wo is a write-only argument, which needs Terraform 1.11 or later.
   required_version = ">= 1.11.0"
 }
 
@@ -17,8 +17,9 @@ resource "cleura_openstack_user" "ci" {
   description = "Deploys from the CI pipeline"
 
   # Write-only: sent to the API, never stored in state. Bump the version to
-  # re-send a changed password on the next apply.
-  password            = var.ci_password
+  # re-send a changed password on the next apply. Tools without write-only
+  # support, such as Crossplane, set `password` instead.
+  password_wo         = var.ci_password
   password_wo_version = "1"
 }
 

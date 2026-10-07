@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- **`cleura_openstack_user`: the write-only password is now `password_wo`, and
+  `password` is an ordinary argument stored in state.**
+  - To keep the password out of state, rename `password` to `password_wo`, and
+    keep `password_wo_version` alongside it.
+  - A configuration that still sets `password` together with
+    `password_wo_version` fails at plan with that hint.
+
+### Added
+
+- **`cleura_openstack_user` works with tools that don't support write-only
+  arguments**, such as Crossplane, Pulumi, and Terraform or OpenTofu before 1.11.
+  - Set `password`, which is stored in state and marked sensitive.
+  - Exactly one of `password` and `password_wo` must be set.
+
 ## v0.3.1
 
 A documentation-only release; the provider behaves exactly as in v0.3.0.

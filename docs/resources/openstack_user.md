@@ -27,11 +27,22 @@ when to set `domain_id`.
 
 ## Password handling
 
-`password` is a **write-only** argument (Terraform 1.11 or later): it is sent to the API on
-create but is never stored in state or shown in plans. Because Terraform cannot see it, it
-also cannot tell when it changes. To rotate the password, change `password` **and** bump
-`password_wo_version` (any string, for example `"2"`); the next apply re-sends the current
-`password`. Edits to other attributes never touch the password.
+Set the password with **exactly one** of these:
+
+- **`password_wo`** is **write-only**. It's sent to the API but never stored in state or shown in
+  plans, and needs Terraform or OpenTofu 1.11 or later. Because Terraform can't see it, it also
+  can't tell when it changes. To rotate it, change `password_wo` **and** bump
+  `password_wo_version` (any string, for example `"2"`); the next apply re-sends it.
+- **`password`** is stored in state, marked sensitive, and a changed value is applied on the
+  next apply. Use it with tools that don't support write-only arguments, such as Crossplane,
+  Pulumi, or Terraform and OpenTofu before 1.11.
+
+Switching between the two doesn't change the user's password by itself, and edits to other
+attributes never touch it.
+
+-> **Upgrading from v0.3.x:** `password` used to be the write-only password. Rename it to
+`password_wo` to keep the password out of state. A configuration that still sets `password`
+together with `password_wo_version` fails at plan with that hint.
 
 ## Project access
 
@@ -56,7 +67,7 @@ this resource is account-scoped. See the provider's
 
 ```terraform
 terraform {
-  # The password is a write-only argument, which needs Terraform 1.11 or later.
+  # password_wo is a write-only argument, which needs Terraform 1.11 or later.
   required_version = ">= 1.11.0"
 }
 
@@ -74,8 +85,9 @@ resource "cleura_openstack_user" "ci" {
   description = "Deploys from the CI pipeline"
 
   # Write-only: sent to the API, never stored in state. Bump the version to
-  # re-send a changed password on the next apply.
-  password            = var.ci_password
+  # re-send a changed password on the next apply. Tools without write-only
+  # support, such as Crossplane, set `password` instead.
+  password_wo         = var.ci_password
   password_wo_version = "1"
 }
 
@@ -102,19 +114,22 @@ terraform import cleura_openstack_user.ci 6f1c0e6f2b1d4c0aa1b2c3d4e5f60718
 
 ### Required
 
-> **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
-
 - `name` (String) User name: 3 to 40 characters of lowercase letters, digits, and `_ . -`. Must be unique within the domain. Updated in place.
-- `password` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Password for the user, 8 to 1024 characters. Write-only: sent to the API on create and whenever `password_wo_version` changes, never stored in state. Requires Terraform 1.11+.
-
-The API accepts letters, numbers and the special characters ``@#!£&?<>;:.-[](){}+%"'=^*$`` and space. Note that `/` is **not** accepted, so a password from `openssl rand -base64` is rejected at apply time; use `openssl rand -hex` or a generator restricted to the set above.
 
 ### Optional
+
+> **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
 
 - `description` (String) Free-text description. Removing it from the configuration clears it on the user. Updated in place. The API accepts only letters, numbers, spaces and the punctuation `. , _ : / -` — other characters are rejected at apply time.
 - `domain_id` (String) OpenStack domain the user is created in. Defaults to the account's domain that serves the provider's `region` (or the account's only domain). Set it explicitly when the account has several domains for the region; list them with `cleura openstack domain list`. Changing it forces a new user.
 - `enabled` (Boolean) Whether the user can log in. Defaults to `true`. Updated in place.
-- `password_wo_version` (String) Arbitrary version marker for the write-only `password`. Because the password is not stored in state, Terraform cannot detect that it changed; bump this value (e.g. `"2"`) to re-send the current `password` on the next apply.
+- `password` (String, Sensitive) Password for the user, 8 to 1024 characters, stored in state and marked sensitive. Changing it updates the password in place. Use it with tools that don't support write-only arguments, such as Crossplane, Pulumi, or Terraform and OpenTofu before 1.11; otherwise prefer `password_wo`. Set exactly one of `password` and `password_wo`.
+
+The API accepts letters, numbers and the special characters ``@#!£&?<>;:.-[](){}+%"'=^*$`` and space. Note that `/` is **not** accepted, so a password from `openssl rand -base64` is rejected at apply time; use `openssl rand -hex` or a generator restricted to the set above.
+- `password_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Write-only password for the user, 8 to 1024 characters: sent to the API on create and whenever `password_wo_version` changes, never stored in state. Requires Terraform or OpenTofu 1.11 or later. Set exactly one of `password` and `password_wo`.
+
+The API accepts letters, numbers and the special characters ``@#!£&?<>;:.-[](){}+%"'=^*$`` and space. Note that `/` is **not** accepted, so a password from `openssl rand -base64` is rejected at apply time; use `openssl rand -hex` or a generator restricted to the set above.
+- `password_wo_version` (String) Arbitrary version marker for `password_wo`. Because a write-only password is not stored in state, Terraform cannot detect that it changed; bump this value (e.g. `"2"`) to re-send the current `password_wo` on the next apply.
 
 ### Read-Only
 
