@@ -40,7 +40,7 @@ documentation.
 
 ```terraform
 terraform {
-  # The user's password is a write-only argument, which needs Terraform 1.11 or later.
+  # The user's password_wo is a write-only argument, which needs Terraform 1.11 or later.
   required_version = ">= 1.11.0"
 }
 
@@ -58,7 +58,7 @@ resource "cleura_openstack_project" "example" {
 resource "cleura_openstack_user" "ci" {
   name                = "ci-deployer"
   description         = "Deploys from the CI pipeline"
-  password            = var.ci_password
+  password_wo         = var.ci_password
   password_wo_version = "1"
 }
 

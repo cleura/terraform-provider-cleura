@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.3.2
+
+This release lets `cleura_openstack_user` work with tools that don't support
+write-only arguments, such as Crossplane. The write-only password is renamed to
+`password_wo`: see **Breaking changes** before upgrading.
+
+### Breaking changes
+
+- **`cleura_openstack_user`: the write-only password is now `password_wo`, and
+  `password` is an ordinary argument stored in state.**
+  - To keep the password out of state, rename `password` to `password_wo`, and
+    keep `password_wo_version` alongside it.
+  - A configuration that still sets `password` together with
+    `password_wo_version` fails at plan with that hint.
+  - A configuration that sets `password` without `password_wo_version` keeps
+    working, but the next apply stores the password in state. The plan warns
+    about it; rename `password` to `password_wo` to keep it out of state.
+
+### Added
+
+- **`cleura_openstack_user` works with tools that don't support write-only
+  arguments**, such as Crossplane, and Terraform or OpenTofu before 1.11.
+  - Set `password`, which is stored in state and marked sensitive.
+  - Exactly one of `password` and `password_wo` must be set.
+
 ## v0.3.1
 
 A documentation-only release; the provider behaves exactly as in v0.3.0.

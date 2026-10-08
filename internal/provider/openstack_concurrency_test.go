@@ -122,7 +122,7 @@ resource "cleura_openstack_project" "shared" {
 		fmt.Fprintf(&b, `
 resource "cleura_openstack_user" "u%[1]d" {
   name                = "%[2]s-user-%[1]d"
-  password            = "Init1al-Passw0rd"
+  password_wo         = "Init1al-Passw0rd"
   password_wo_version = "1"
   description         = "parallel apply %[1]d"
 }
@@ -168,7 +168,7 @@ provider "cleura" {
 			resource.TestCheckResourceAttr(fmt.Sprintf("cleura_openstack_user.u%d", i), "name", fmt.Sprintf("tfpar-user-%d", i)),
 			resource.TestCheckResourceAttr(fmt.Sprintf("cleura_openstack_user.u%d", i), "description", fmt.Sprintf("parallel apply %d", i)),
 			// The write-only password must never land in state, for any of them.
-			resource.TestCheckNoResourceAttr(fmt.Sprintf("cleura_openstack_user.u%d", i), "password"),
+			resource.TestCheckNoResourceAttr(fmt.Sprintf("cleura_openstack_user.u%d", i), "password_wo"),
 			resource.TestCheckResourceAttr(fmt.Sprintf("cleura_openstack_role_assignment.u%d", i), "roles.#", "1"),
 		)
 	}

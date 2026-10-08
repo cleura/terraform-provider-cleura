@@ -35,7 +35,7 @@ resource "cleura_openstack_project" "test" {
 	user := fmt.Sprintf(`
 resource "cleura_openstack_user" "test" {
   name                = %q
-  password            = "Init1al-Passw0rd"
+  password_wo         = "Init1al-Passw0rd"
   password_wo_version = "1"
   description         = "test service account"
 }`, userName)
@@ -48,7 +48,7 @@ resource "cleura_openstack_project" "test" {
 		user = fmt.Sprintf(`
 resource "cleura_openstack_user" "test" {
   name                = %q
-  password            = "R0tated-Passw0rd"
+  password_wo         = "R0tated-Passw0rd"
   password_wo_version = "2"
   description         = "rotated"
 }`, userName)
@@ -188,7 +188,7 @@ provider "cleura" {
 					resource.TestCheckResourceAttr("cleura_openstack_user.test", "enabled", "true"),
 					resource.TestCheckResourceAttr("cleura_openstack_user.test", "password_wo_version", "1"),
 					// Write-only: never in state.
-					resource.TestCheckNoResourceAttr("cleura_openstack_user.test", "password"),
+					resource.TestCheckNoResourceAttr("cleura_openstack_user.test", "password_wo"),
 					passwordIs("tftest-user", "Init1al-Passw0rd"),
 
 					resource.TestCheckResourceAttrPair("cleura_openstack_role_assignment.test", "user_id", "cleura_openstack_user.test", "id"),
@@ -325,7 +325,7 @@ provider "cleura" {
 				Check: resource.ComposeAggregateTestCheckFunc(append(projectChecks(false),
 					resource.TestCheckResourceAttr("cleura_openstack_user.test", "name", userName),
 					resource.TestCheckResourceAttr("cleura_openstack_user.test", "description", "test service account"),
-					resource.TestCheckNoResourceAttr("cleura_openstack_user.test", "password"),
+					resource.TestCheckNoResourceAttr("cleura_openstack_user.test", "password_wo"),
 					resource.TestCheckResourceAttrPair("data.cleura_openstack_user.by_id", "name", "cleura_openstack_user.test", "name"),
 					resource.TestCheckResourceAttr("cleura_openstack_role_assignment.test", "roles.#", "1"),
 					resource.TestCheckTypeSetElemAttr("cleura_openstack_role_assignment.test", "roles.*", "member"),

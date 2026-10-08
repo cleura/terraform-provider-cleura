@@ -28,7 +28,7 @@ repository. Real-world reports directly shape what we build next.
   project is prepared for Gardener automatically when a shoot is created
 - `cleura_gardener_shoot_kubeconfig` — short-lived admin kubeconfigs
 - `cleura_openstack_project` — OpenStack projects (name, description, enabled state)
-- `cleura_openstack_user` — OpenStack users with write-only passwords
+- `cleura_openstack_user` — OpenStack users, with a write-only or a stored password
 - `cleura_openstack_role_assignment` — a user's roles on a project (see the
   [OpenStack projects, users and domains](guides/openstack-identity.md) guide)
 - `cleura_openstack_project`, `cleura_openstack_user` (data sources) — look up projects and
