@@ -14,6 +14,9 @@ write-only arguments, such as Crossplane. The write-only password is renamed to
     keep `password_wo_version` alongside it.
   - A configuration that still sets `password` together with
     `password_wo_version` fails at plan with that hint.
+  - A configuration that sets `password` without `password_wo_version` keeps
+    working, but the next apply stores the password in state. The plan warns
+    about it; rename `password` to `password_wo` to keep it out of state.
 
 ### Added
 

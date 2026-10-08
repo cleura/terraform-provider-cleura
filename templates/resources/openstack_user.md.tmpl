@@ -42,7 +42,9 @@ attributes never touch it.
 
 -> **Upgrading from v0.3.0 or v0.3.1:** `password` used to be the write-only password. Rename it to
 `password_wo` to keep the password out of state. A configuration that still sets `password`
-together with `password_wo_version` fails at plan with that hint.
+together with `password_wo_version` fails at plan with that hint. One that sets `password`
+without `password_wo_version` keeps working, but the next apply stores the password in state;
+the plan warns about it.
 
 ## Project access
 
