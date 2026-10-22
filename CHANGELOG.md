@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **The provider can be embedded by other Go modules.**
+  The new `github.com/cleura/terraform-provider-cleura/provider` package exports `New`, so tools such as the Crossplane provider can serve the provider in-process.
+  The provider's behaviour is unchanged.
+
 ## v0.3.2
 
 This release lets `cleura_openstack_user` work with tools that don't support
