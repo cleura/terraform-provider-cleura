@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## v0.3.3
+
+This release lets other Go modules, such as the Crossplane provider, embed the provider.
+Terraform and OpenTofu users see no change.
 
 ### Added
 
