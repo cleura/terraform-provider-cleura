@@ -3,21 +3,25 @@
 ## Reporting a vulnerability
 
 Please **do not open a public issue** for security problems.
+Instead, report vulnerabilities privately through GitHub's [private vulnerability reporting](https://github.com/cleura/terraform-provider-cleura/security/advisories/new) (*Security* → *Report a vulnerability*).
 
-Report vulnerabilities privately through GitHub's [private vulnerability reporting](https://github.com/cleura/terraform-provider-cleura/security/advisories/new) (the **Security** tab → *Report a vulnerability*).
-If you cannot use that, email the maintainers instead of filing a public issue.
+If you cannot do that, email the maintainers instead of filing a public issue.
 
-Include, as far as you can: the affected provider version and Terraform/OpenTofu version (`terraform version`), a minimal configuration to reproduce, and the impact you observed.
-We aim to acknowledge reports promptly and will keep you updated as we investigate and fix.
+Include, as far as you can:
+- the affected provider version and Terraform/OpenTofu version (`terraform version`),
+- a minimal configuration to reproduce, and
+- the impact you observed.
+We aim to acknowledge reports promptly and will keep you updated as we investigate and fix the issue.
 
 ## Handling credentials
 
-The provider authenticates to the Cleura API with a username and API token.
+The provider authenticates to the Cleura API with a username and an API token.
 It reads them, in order, from the provider configuration, the `CLEURA_API_USERNAME` / `CLEURA_API_TOKEN` environment variables, or the cleura CLI (`cleura login`).
-The `token` attribute is marked sensitive and the provider does not write it to its logs.
-Note, however, that **Terraform state and `TF_LOG` output can contain sensitive values** — protect them accordingly.
+The `token` attribute is marked sensitive, and the provider does not write it to its logs.
+Note, however, that **Terraform state and `TF_LOG` output can contain sensitive values,** so protect them accordingly.
 
-Cleura API tokens are short-lived. If you believe a token has been exposed, revoke it (`cleura logout`, or via the Cleura Control Panel) and obtain a new one.
+Cleura API tokens are short-lived.
+If you believe a token has been exposed, revoke it (with `cleura logout` or via the Cleura Control Panel), and obtain a new one.
 
 ## Supported versions
 
