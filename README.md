@@ -1,32 +1,41 @@
-# Terraform Provider Cleura
+# Terraform Provider for Cleura
 
-A Terraform or OpenTofu provider for [Cleura Cloud](https://cleura.com/) — manage Cleura's managed services (managed Kubernetes, and OpenStack projects and users) as code, alongside the OpenStack provider that handles the underlying infrastructure.
-Published on the [Terraform Registry](https://registry.terraform.io/providers/cleura/cleura); works against both the Public and Compliant clouds.
+This is a Terraform / OpenTofu provider for [Cleura Cloud](https://cleura.com/).
+It allows you to
 
-> [!WARNING]
+- treat Cleura's managed services (Gardener, OpenStack projects and users) as code, and
+- handle the underlying infrastructure via a suitable OpenStack provider.
+
+The Terraform Provider is published on the [Terraform Registry](https://registry.terraform.io/providers/cleura/cleura), and works against both the Public and the Compliant cloud.
+
+> **Warning**
+>
 > This provider is in early (`0.x`) development.
-> The Gardener cluster surface has been tested against live Cleura environments, but coverage is still limited, the API may change between minor versions, and production use is not yet recommended.
+> The Gardener cluster surface has been tested against live Cleura environments, but coverage is still limited, and the API may change between minor versions.
+> Production use is not yet recommended.
 
-We build this in the open and **greatly value your testing and feedback** — exercising the provider against your own Cleura environment is genuinely helpful at this stage.
-If you hit a bug, see unexpected behaviour, or have an improvement in mind, please [open an issue](https://github.com/cleura/terraform-provider-cleura/issues) on the provider repository.
+We build this in the open and **greatly value your testing and feedback**.
+Trying the provider against your own Cleura environment is genuinely helpful at this stage.
+If you hit a bug, see unexpected behavior, or have an improvement in mind, please [open an issue](https://github.com/cleura/terraform-provider-cleura/issues).
 Real-world reports directly shape what we build next.
 
-**Currently supported:**
+The following is a list of what is **currently supported:**
 
-- `cleura_gardener_shoot` — Gardener-based Kubernetes clusters (worker groups, maintenance windows, hibernation schedules, allowed login CIDRs, and Calico/Cilium networking).
-  The project is prepared for Gardener automatically when a shoot is created.
-- `cleura_gardener_shoot_kubeconfig` — short-lived admin kubeconfigs.
-- `cleura_openstack_project` — OpenStack projects (name, description, enabled state).
-- `cleura_openstack_user` — OpenStack users, with a write-only or a stored password `cleura_openstack_role_assignment` — a user's roles on a project (see the [OpenStack projects, users and domains](docs/guides/openstack-identity.md) guide).
-- `cleura_openstack_project`, `cleura_openstack_user` (data sources) — look up projects and users.
-  The older `cleura_project` data source is deprecated in favour of `cleura_openstack_project`.
+- `cleura_gardener_shoot:` Gardener-based Kubernetes clusters (worker groups, maintenance windows, hibernation schedules, allowed login CIDRs, and Calico/Cilium networking);
+  when you create a shoot, the project is automatically prepared for Gardener.
+- `cleura_gardener_shoot_kubeconfig:` short-lived admin kubeconfigs.
+- `cleura_openstack_project:` OpenStack projects (name, description, enabled state).
+- `cleura_openstack_user:` OpenStack users, with a write-only or a stored password.
+- `cleura_openstack_role_assignment:` a user's roles on a project (see the [OpenStack projects, users and domains](docs/guides/openstack-identity.md) guide).
+- `cleura_openstack_project`, `cleura_openstack_user:` (data sources) look up projects and users;
+  the older `cleura_project` data source is deprecated in favor of `cleura_openstack_project`.
 
-The provider's datamodels and scaffolding are generated from the Cleura OpenAPI spec using the [Terraform Provider Code Generation](https://github.com/hashicorp/terraform-plugin-codegen-openapi) tools (see [Generate](#generate)).
-The API client is not generated here — the provider consumes the shared [`cleura-client-go`](https://github.com/cleura/cleura-client-go) module.
+The provider's data models and scaffolding are generated from the Cleura OpenAPI spec using the [Terraform Provider Code Generation](https://github.com/hashicorp/terraform-plugin-codegen-openapi) tools (see [Generate](#generate)).
+The API client is not generated here; the provider consumes the shared [`cleura-client-go`](https://github.com/cleura/cleura-client-go) module.
 
 ## Usage
 
-Configure the provider and create a Gardener Kubernetes cluster ("shoot"):
+Configure the provider and create a Gardener Kubernetes (shoot) cluster:
 
 ```hcl
 terraform {
@@ -81,44 +90,51 @@ resource "cleura_gardener_shoot_kubeconfig" "example" {
 }
 ```
 
-The full schema for every resource and data source — including optional worker labels/annotations/taints, hibernation schedules, and maintenance windows — is documented under [`docs/`](./docs) and on the Terraform Registry.
+The full schema for every resource and data source, including optional worker labels/annotations/taints, hibernation schedules, and maintenance windows, is documented under [`docs/`](./docs) and on the Terraform Registry.
 
 ## Authentication
 
-The simplest setup is the **cleura CLI**: run `cleura login` once and the provider uses those credentials automatically — the provider block then needs only `cloud`, `region`, and (as the default for Gardener resources) `project_id`.
-No token in configuration, no environment variables to manage.
+The simplest setup is via the **cleura CLI.**
+More specifically, run `cleura login` once, and the provider will use those credentials automatically.
+For the `provider` block, you need only the values for `cloud`, `region`, and `project_id` (the default for Gardener resources).
+You don't have to manage any tokens in the configuration or any environment variables.
 
-Credentials resolve in precedence order (the first tier that provides a value wins, per value).
-The CLI is the automatic fallback, so explicit configuration and environment variables always override it:
+Credentials resolve in precedence order: the first tier that provides a value wins, per value.
+The Cleura CLI is the automatic fallback, so explicit configuration and environment variables always override it:
 
-1. **Provider configuration** — `username` / `token` attributes. Highest precedence, but avoid committing secrets; prefer the CLI or environment.
-2. **Environment variables** — `CLEURA_API_USERNAME` / `CLEURA_API_TOKEN` (and `CLEURA_API_URL` for private clouds). Use these to override the CLI — for example in CI:
-
+1. **Provider configuration:** `username` / `token` attributes. Highest precedence, but avoid committing secrets; prefer the CLI or environment.
+2. **Environment variables:** `CLEURA_API_USERNAME` / `CLEURA_API_TOKEN` (and `CLEURA_API_URL`, for private clouds).
+   Use these to override the CLI, e.g., in CI:
    ```sh
    export CLEURA_API_USERNAME="your-username"
    export CLEURA_API_TOKEN="your-token"
    ```
-
-3. **The cleura CLI** — the default.
-   If the [`cleura` CLI](https://github.com/cleura/cleura-cli) is installed and logged in (`cleura login`), the provider uses its credentials automatically, with no configuration.
+3. **Cleura CLI:** the default.
+   If the [`cleura` CLI](https://github.com/cleura/cleura-cli) is installed and you are logged in (`cleura login`), the provider uses its credentials automatically with no configuration.
    Pin a specific CLI profile with the `profile` attribute, or disable the fallback entirely with `use_cli = false`.
    Cleura tokens are short-lived: if a plan fails with an authentication error, re-run `cleura login`.
 
-Only **credentials** come from the CLI. `region` and `project_id` are never read from it — `region` comes from the provider configuration (or `CLEURA_REGION`), and `project_id` from the resource or the provider (or `CLEURA_PROJECT_ID`): where infrastructure lives should never depend on the operator's CLI profile.
+Only **credentials** come from the `cleura` CLI.
+Values for `region` and `project_id` are never read from it.
+The value for `region` comes from the provider configuration (or `CLEURA_REGION`).
+The value for `project_id` comes from the resource, the provider, or the `CLEURA_PROJECT_ID`; where infrastructure lives should be independent of the operator's CLI profile.
 
-Credentials are read once, when the provider is configured: a token expiring during a long apply fails at the affected resource call — re-run after `cleura login`.
-The CLI is executed with the `CLEURA_*` credential variables stripped from its environment, so the CLI tier reflects the CLI's stored state only; environment credentials participate as their own (higher) tier.
+Credentials are read once, when the provider is configured.
+A token expiring during a long apply fails at the affected resource call (try again after `cleura login`).
+The CLI is executed with the `CLEURA_*` credential variables stripped from its environment.
+That means the CLI tier reflects only the CLI's stored state; environment credentials participate as their own (higher) tier.
 
-> [!WARNING]
-> The token grants API access to your Cleura account — treat it like a password. Don't commit it to version control.
+> **Warning**
+> 
+> The token grants API access to your Cleura account, so treat it like a password and never commit it to version control.
 > `token` is marked sensitive in state, but environment variables are safer.
 
 ## Build
 
-The provider can be built and tested locally.
-Use the sections in this chapter to build and run the provider with local changes.
+You can build and test the provider locally.
+Use the following sub-sections to build and run the provider with local changes.
 
-### Running locally from binary
+### Running locally from a binary
 
 To build and run the provider locally, you will need a `~/.terraformrc` with development overrides:
 
@@ -138,19 +154,19 @@ provider_installation {
 }
 ```
 
-Within the repository root, run
+Within the repository root, run:
 
 ```sh
 go install .
 ```
 
-Now you can run Terraform with the locally installed provider as normal.
-Don't forget to remove the `dev_overrides` if you want to install the provider from the registry.
+From then on, you can run Terraform with the locally installed provider.
+If you want to install the provider from the registry, remove the `dev_overrides`.
 
 ### Running locally with VSCode debugger
 
-To run the provider in debug mode within VSCode, create a new file `.vscode/launch.json` in the root of the repository, fill in the `CLEURA_API_USERNAME` and `CLEURA_API_TOKEN`.
-This is because the terraform provider WILL NOT source environment variables set in the current shell session:
+To run the provider in debug mode within VSCode, create a new file `.vscode/launch.json` in the root of the repository, and initialize the `CLEURA_API_USERNAME` and `CLEURA_API_TOKEN` variables.
+This is necessary: the Terraform provider won't source environment variables set in the current shell session:
 
 ```json
 {
@@ -175,39 +191,41 @@ This is because the terraform provider WILL NOT source environment variables set
 }
 ```
 
-In the "Run and Debug" tab, you should now see "Debug Terraform Provider" in the dropdown menu.
+In the dropdown menu of the *Run and Debug* tab, you should now see an option named *Debug Terraform Provider*.
 Select it and press the play button to start the debug session.
 
-This should open the "Debug console" and display an environment variable containing the connection string for this instance.
-Copy this variable to your shell and run terraform right after it:
+This should open the *Debug console* and display an environment variable containing the connection string for this instance.
+Copy this variable to your shell and then run `terraform plan`:
 
 ```sh
 TF_REATTACH_PROVIDERS='{"registry.terraform.io/cleura/cleura":{"Protocol":"grpc","ProtocolVersion":6,"Pid":1181,"Test":true,"Addr":{"Network":"unix","String":"/var/folders/kg/lqlc92tx6cn2w4gm9jjst__m0000gn/T/plugin2941296319"}}}' terraform plan
 ```
 
-After updating the code, you will need to restart the debug session, which also generates a new connection string.
-When changing the environment variables in `launch.json`, you will need to STOP the debug session to reload any environment variable changes.
+After updating the code, restart the debug session; this generates a new connection string.
+When changing the environment variables in `launch.json`, **you will need to stop** the debug session to reload any environment variable changes.
 
-> [!NOTE]
+> **Note:**
+> 
 > If you can't see the "Debug Terraform Provider" in the debug tab, ensure you have opened the root of the repository as the workspace root.
 
-### Generate
+### Generate data models
 
-To generate all datamodels from the API, ensure you have the following installed on your machine:
+To generate all data models from the API, ensure you have the following installed on your computer:
 
-* Terraform Provider Code Generation, OpenAPI - `go install github.com/hashicorp/terraform-plugin-codegen-openapi/cmd/tfplugingen-openapi@latest`
-* Terraform Provider Code Generation, Framework - `go install github.com/hashicorp/terraform-plugin-codegen-framework/cmd/tfplugingen-framework@latest`
+* Terraform Provider Code Generation, OpenAPI: `go install github.com/hashicorp/terraform-plugin-codegen-openapi/cmd/tfplugingen-openapi@latest`
+* Terraform Provider Code Generation, Framework: `go install github.com/hashicorp/terraform-plugin-codegen-framework/cmd/tfplugingen-framework@latest`
 
-> [!NOTE]
-> You need to have your Go bin path configured in your $PATH to be able to run the Go binaries installed.
+> **Note:**
+> 
+> You need to have your Go bin path configured in your $PATH to be able to run the installed Go binaries.
 
-Generate the provider datamodels using the shell script:
+Generate the provider data models using the shell script:
 
 ```sh
 ./generate.sh
 ```
 
-If any changes were made to the OpenAPI spec, these changes have now been applied.
+If you made changes to the OpenAPI spec, they have now been applied.
 
 Documentation under `docs/` is generated separately (it is not part of `generate.sh`):
 
@@ -217,7 +235,7 @@ make docs
 
 Every page is rendered from its template in `templates/`, with attribute reference sections generated from the schema.
 
-## Test
+## Testing
 
 Run the unit tests (fast, no cloud credentials required):
 
