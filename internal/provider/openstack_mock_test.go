@@ -206,7 +206,7 @@ func (m *mockIdentity) handler() http.Handler {
 		m.mu.Unlock()
 		name := "CCP_Domain_1"
 		writeJSON(w, 200, []api.CommonOpenStackDomain{{
-			Id: m.domainID, Name: &name, Status: "active",
+			Id: strp(m.domainID), Name: &name, Status: "active",
 			Area: api.CommonOpenStackDomainArea{Id: 1, Name: "Stockholm", Tag: "sto", Regions: []api.CommonOpenStackRegion{{Id: 1, Name: "Stockholm 2", Tag: "Sto2"}}},
 		}})
 	})
