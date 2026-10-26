@@ -425,7 +425,9 @@ func (r *authenticationConfigurationResource) Delete(ctx context.Context, req re
 	detail := err.Error()
 	if response.StatusCode == http.StatusConflict {
 		if users := r.shootsUsing(ctx, name); users != "" {
-			detail += "\n\nIt is used by: " + users + ". Remove `authentication_configuration_name` from those clusters first."
+			detail += "\n\nIt is used by: " + users + ". Remove `authentication_configuration_name` from those clusters " +
+				"first. If this apply moves them to another configuration, add `lifecycle { create_before_destroy = true }` " +
+				"to this resource, so the clusters are updated before the old configuration is deleted."
 		}
 	}
 	resp.Diagnostics.AddError("Failed to delete authentication configuration", detail)

@@ -165,6 +165,17 @@ data "cleura_gardener_shoot_oidc_kubeconfig" "ci" {
 				ExpectError: regexp.MustCompile(`(?s)has\s+no\s+issuer\s+"entra".*Its\s+issuers\s+are:\s+keycloak`),
 			},
 			{
+				// An explicit configuration name must be the one the cluster uses.
+				Config: oidcShootConfig(`authentication_configuration_name = "corp-sso"`, `
+data "cleura_gardener_shoot_oidc_kubeconfig" "ci" {
+  shoot_name                        = cleura_gardener_shoot.test.name
+  authentication_configuration_name = "other-sso"
+  issuer_alias                      = "keycloak"
+  audience                          = "ci"
+}`),
+				ExpectError: regexp.MustCompile(`(?s)uses\s+the\s+authentication\s+configuration\s+"corp-sso",\s+not\s+"other-sso"`),
+			},
+			{
 				// Without a configuration on the cluster there is nothing to fetch.
 				Config:      oidcShootConfig("", dataSource("keycloak", "ci")),
 				ExpectError: regexp.MustCompile(`(?s)has\s+no\s+authentication\s+configuration`),

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **OIDC sign-in for Gardener clusters.**
+  - **`cleura_gardener_authentication_configuration` resource**: the OIDC issuers clusters accept sign-ins from, with audiences, claim mappings and validation rules.
+    One configuration can be attached to any number of clusters.
+  - **`authentication_configuration_name` on `cleura_gardener_shoot`**: attaches a configuration to a cluster.
+    Setting, changing or removing it updates the cluster in place.
+  - **`cleura_gardener_shoot_oidc_kubeconfig` data source**: a secret-free kubeconfig that signs in through one issuer and audience, using the kubelogin plugin.
+
+### Changed
+
+- Upgraded to `cleura-client-go` v0.4.0.
+
+### Fixed
+
+- **OpenStack domains that the account could request but doesn't have are skipped** when the provider resolves the domain for its region.
+  Such entries have no domain behind them; a region served only by one now reports that no domain was found, rather than matching an entry without an ID.
+
 ## v0.3.3
 
 This release lets other Go modules, such as the Crossplane provider, embed the provider.

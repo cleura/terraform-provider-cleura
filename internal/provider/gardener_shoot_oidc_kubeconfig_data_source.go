@@ -70,8 +70,12 @@ func (d *shootOIDCKubeconfigDataSource) Schema(_ context.Context, _ datasource.S
 				MarkdownDescription: "One of the issuer's `audiences`, used as the OIDC client ID.",
 			},
 			"authentication_configuration_name": schema.StringAttribute{
-				Computed:            true,
-				MarkdownDescription: "The authentication configuration the cluster uses.",
+				Optional: true,
+				Computed: true,
+				MarkdownDescription: "The authentication configuration the cluster uses. Normally read from the cluster; " +
+					"set it to `cleura_gardener_authentication_configuration.<name>.name` when the same apply changes " +
+					"that configuration (for example adds the audience), so the kubeconfig is fetched after the change. " +
+					"It must match the configuration attached to the cluster.",
 			},
 			"kubeconfig": schema.StringAttribute{
 				Computed:            true,
@@ -112,6 +116,11 @@ func (d *shootOIDCKubeconfigDataSource) Read(ctx context.Context, req datasource
 	if configName == "" {
 		resp.Diagnostics.AddAttributeError(path.Root("shoot_name"), "No authentication configuration",
 			fmt.Sprintf("Cluster %q has no authentication configuration. Set authentication_configuration_name on it first.", shootName))
+		return
+	}
+	if want := m.AuthenticationConfigurationName.ValueString(); want != "" && want != configName {
+		resp.Diagnostics.AddAttributeError(path.Root("authentication_configuration_name"), "Wrong authentication configuration",
+			fmt.Sprintf("Cluster %q uses the authentication configuration %q, not %q.", shootName, configName, want))
 		return
 	}
 
