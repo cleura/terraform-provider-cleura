@@ -14,6 +14,7 @@ One configuration can be attached to any number of clusters in the region with [
 Users then sign in with a kubeconfig from [`cleura_gardener_shoot_oidc_kubeconfig`](../data-sources/gardener_shoot_oidc_kubeconfig.md), which needs the [kubelogin](https://github.com/int128/kubelogin) plugin (`kubectl oidc-login`).
 The cluster sees them as `oidc:<alias>:<username>` with groups `oidc:<alias>:<group>`, where `<alias>` is the key in `issuers`; role bindings refer to those names.
 A new cluster has no role bindings, so the first binding is created with an admin kubeconfig.
+Group names come through exactly as the identity provider sends them: a Keycloak group mapper with "Full group path" on sends `/k8s-admin`, so the binding subject is `oidc:keycloak:/k8s-admin`.
 
 - `issuers` is keyed by an alias of your choice (3–32 characters, lowercase letters, digits and `-`).
   Each issuer's `url` must be `https` and unique within the configuration; several audiences for one issuer go in its `audiences` list.
