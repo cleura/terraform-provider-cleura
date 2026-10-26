@@ -364,6 +364,7 @@ func (p *cleuraProvider) DataSources(_ context.Context) []func() datasource.Data
 		NewProjectDataSource,
 		NewOpenStackProjectDataSource,
 		NewOpenStackUserDataSource,
+		NewGardenerShootOIDCKubeconfigDataSource,
 	}
 }
 
@@ -372,6 +373,7 @@ func (p *cleuraProvider) Resources(_ context.Context) []func() resource.Resource
 	return []func() resource.Resource{
 		NewGardenerShootResource,
 		NewGardenerShootKubeconfigResource,
+		NewGardenerAuthenticationConfigurationResource,
 		NewOpenStackProjectResource,
 		NewOpenStackUserResource,
 		NewOpenStackRoleAssignmentResource,

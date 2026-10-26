@@ -27,6 +27,10 @@ repository. Real-world reports directly shape what we build next.
   windows, hibernation schedules, allowed login CIDRs, and Calico/Cilium networking). The
   project is prepared for Gardener automatically when a shoot is created
 - `cleura_gardener_shoot_kubeconfig` — short-lived admin kubeconfigs
+- `cleura_gardener_authentication_configuration` — OIDC issuers that clusters accept sign-ins
+  from, attached to a cluster with `authentication_configuration_name`
+- `cleura_gardener_shoot_oidc_kubeconfig` (data source) — a kubeconfig that signs in through
+  one of those issuers
 - `cleura_openstack_project` — OpenStack projects (name, description, enabled state)
 - `cleura_openstack_user` — OpenStack users, with a write-only or a stored password
 - `cleura_openstack_role_assignment` — a user's roles on a project (see the

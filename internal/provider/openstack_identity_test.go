@@ -15,12 +15,8 @@ import (
 
 func strp(s string) *string { return &s }
 
-func domain(id, name, areaName string, regionTags ...string) api.CommonOpenStackDomain {
-	var regions []api.CommonOpenStackRegion
-	for i, tag := range regionTags {
-		regions = append(regions, api.CommonOpenStackRegion{Id: i + 1, Name: tag, Tag: tag})
-	}
-	return api.CommonOpenStackDomain{Id: id, Name: strp(name), Status: "active", Area: api.CommonOpenStackDomainArea{Id: 1, Name: areaName, Tag: strings.ToLower(areaName), Regions: regions}}
+func domain(id, name, authority string, regionTags ...string) openstackDomain {
+	return openstackDomain{ID: id, Name: name, Authority: strings.ToUpper(authority), Regions: regionTags}
 }
 
 func TestDomainForRegion(t *testing.T) {
@@ -29,17 +25,17 @@ func TestDomainForRegion(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		domains []api.CommonOpenStackDomain
+		domains []openstackDomain
 		region  string
 		want    string
 		wantErr string
 	}{
-		{"region identifies the domain", []api.CommonOpenStackDomain{sto, fra}, "Fra1", "dom-fra", ""},
-		{"region tag match is case-insensitive", []api.CommonOpenStackDomain{sto, fra}, "sto2", "dom-sto", ""},
-		{"sole domain wins even when it does not list the region", []api.CommonOpenStackDomain{sto}, "Kna1", "dom-sto", ""},
+		{"region identifies the domain", []openstackDomain{sto, fra}, "Fra1", "dom-fra", ""},
+		{"region tag match is case-insensitive", []openstackDomain{sto, fra}, "sto2", "dom-sto", ""},
+		{"sole domain wins even when it does not list the region", []openstackDomain{sto}, "Kna1", "dom-sto", ""},
 		{"no domains", nil, "Sto2", "", "no OpenStack domains"},
-		{"several domains, none serving the region", []api.CommonOpenStackDomain{sto, fra}, "Kna1", "", "set domain_id explicitly"},
-		{"several domains serving the region", []api.CommonOpenStackDomain{sto, domain("dom-sto-b", "CCP_Domain_3", "Stockholm", "Sto2")}, "Sto2", "", "2 OpenStack domains serve region"},
+		{"several domains, none serving the region", []openstackDomain{sto, fra}, "Kna1", "", "set domain_id explicitly"},
+		{"several domains serving the region", []openstackDomain{sto, domain("dom-sto-b", "CCP_Domain_3", "Stockholm", "Sto2")}, "Sto2", "", "2 OpenStack domains serve region"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -210,5 +206,31 @@ func TestSetDiff(t *testing.T) {
 	added, removed = setDiff([]string{"a"}, []string{"a"})
 	if len(added) != 0 || len(removed) != 0 {
 		t.Errorf("identical sets: got added=%v removed=%v", added, removed)
+	}
+}
+
+// TestListDomainsSkipsRequestableAuthorities: identity authorities the
+// account could request but does not have (status "available") have no
+// domain behind them, so they must not produce a domain or a region match.
+func TestListDomainsSkipsRequestableAuthorities(t *testing.T) {
+	mux := http.NewServeMux()
+	serveDomains(mux, map[string][2]string{"dom-sto": {"CCP_Domain_1", "SE_STO2"}}, map[string][]string{"SE_STO2": {"Sto2"}},
+		[]api.OpenStackIdentityIdentityAuthority{{Tag: "DE", Name: "Germany", Status: api.Available,
+			Regions: []api.OpenStackIdentityRegionWithStatus{{Tag: "Fra1", IsActive: false}}}}, nil)
+	cfg := newTestConfig(t, mux)
+
+	domains, err := listDomains(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(domains) != 1 || domains[0].ID != "dom-sto" || fmt.Sprint(domains[0].Regions) != "[Sto2]" {
+		t.Fatalf("listDomains = %+v; want only dom-sto serving Sto2", domains)
+	}
+	if id, err := domainForRegion(domains, "Sto2"); err != nil || id != "dom-sto" {
+		t.Fatalf("domainForRegion(Sto2) = %q, %v; want dom-sto", id, err)
+	}
+	// A region only reachable through a requestable authority is not served.
+	if _, err := domainForRegion(append(domains, domain("dom-x", "x", "x")), "Fra1"); err == nil {
+		t.Fatal("domainForRegion(Fra1) succeeded; want an error, nothing serves Fra1")
 	}
 }

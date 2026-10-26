@@ -1,9 +1,11 @@
 package provider
 
 import (
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 )
 
 // withShootDescriptions injects the reviewed MarkdownDescription text from
@@ -18,6 +20,15 @@ func withShootDescriptions(s schema.Schema) schema.Schema {
 	s.Attributes["id"] = idAttribute("Read-only. Identifier of the cluster, in the form `<project_id>/<name>`. " +
 		"Can also be used as the import ID.")
 	s.Attributes["project_id"] = shootProjectIDAttribute()
+	s.Attributes["authentication_configuration_name"] = schema.StringAttribute{
+		Optional: true,
+		MarkdownDescription: "Name of a `cleura_gardener_authentication_configuration` whose OIDC issuers the " +
+			"cluster accepts tokens from. Setting, changing or removing it updates the cluster in place.",
+		Validators: []validator.String{
+			stringvalidator.LengthBetween(1, 32),
+			stringvalidator.RegexMatches(dnsLabelPattern, dnsLabelMessage),
+		},
+	}
 	return s
 }
 
