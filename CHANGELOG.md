@@ -13,12 +13,9 @@
 
 ### Changed
 
+- **The provider's region is matched to an OpenStack domain through the identity authorities** (`/openstack/identity/v3/domains` and `/openstack/identity/v1/identity-authorities`) instead of the deprecated v2 domain listing.
+  The result is the same for existing accounts; the lookup is faster, and identity authorities the account could request but doesn't have are never matched.
 - Upgraded to `cleura-client-go` v0.4.0.
-
-### Fixed
-
-- **OpenStack domains that the account could request but doesn't have are skipped** when the provider resolves the domain for its region.
-  Such entries have no domain behind them; a region served only by one now reports that no domain was found, rather than matching an entry without an ID.
 
 ## v0.3.3
 

@@ -172,35 +172,62 @@ func optionalStringValue(s *string) types.String {
 
 // ----- domains -----
 
-// listDomains fetches the account's OpenStack domains.
-//
-// The listing also includes domain areas the account could request but does
-// not have (status "available"). Those carry no id, because there is no domain
-// behind them, so they are dropped here: every domain this returns has an id.
-func listDomains(ctx context.Context, cfg *ProviderConfig) ([]api.CommonOpenStackDomain, error) {
-	resp, err := cfg.Client.OpenStackIdentityListDomains(ctx)
+// openstackDomain is an account domain together with the regions it serves.
+type openstackDomain struct {
+	ID, Name  string
+	Authority string   // the identity authority (Keystone) the domain belongs to
+	Regions   []string // region tags active under that authority
+}
+
+// listDomains fetches the account's OpenStack domains and the regions each
+// one serves. Domains come from the v3 listing; their regions come from the
+// identity authorities, joined on the authority tag. Authorities the account
+// could request but doesn't have (status "available") have no domain, so they
+// never appear.
+func listDomains(ctx context.Context, cfg *ProviderConfig) ([]openstackDomain, error) {
+	resp, err := cfg.Client.OpenStackIdentityListDomainsV3(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing OpenStack domains: %w", err)
 	}
-	var listed []api.CommonOpenStackDomain
+	var listed []api.OpenStackIdentityDomain
 	if err := decodeJSON(resp, &listed); err != nil {
 		return nil, fmt.Errorf("listing OpenStack domains: %w", err)
 	}
-	domains := make([]api.CommonOpenStackDomain, 0, len(listed))
-	for _, d := range listed {
-		if domainIDOf(d) != "" {
-			domains = append(domains, d)
+	resp, err = cfg.Client.OpenStackIdentityListIdentityAuthorities(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing identity authorities: %w", err)
+	}
+	var authorities []api.OpenStackIdentityIdentityAuthority
+	if err := decodeJSON(resp, &authorities); err != nil {
+		return nil, fmt.Errorf("listing identity authorities: %w", err)
+	}
+	regionsByAuthority := map[string][]string{}
+	for _, a := range authorities {
+		if a.Status != api.Provisioned {
+			continue
 		}
+		for _, r := range a.Regions {
+			if r.IsActive {
+				regionsByAuthority[a.Tag] = append(regionsByAuthority[a.Tag], r.Tag)
+			}
+		}
+	}
+	domains := make([]openstackDomain, 0, len(listed))
+	for _, d := range listed {
+		domains = append(domains, openstackDomain{ID: d.Id, Name: d.Name, Authority: d.IdentityAuthorityTag, Regions: regionsByAuthority[d.IdentityAuthorityTag]})
 	}
 	return domains, nil
 }
 
-// domainIDOf returns a domain's id. listDomains only returns domains that have one.
-func domainIDOf(d api.CommonOpenStackDomain) string {
-	if d.Id == nil {
-		return ""
+// servesRegion reports whether the domain serves the region (tags compare
+// case-insensitively).
+func (d openstackDomain) servesRegion(region string) bool {
+	for _, r := range d.Regions {
+		if strings.EqualFold(r, region) {
+			return true
+		}
 	}
-	return *d.Id
+	return false
 }
 
 // domainForRegion picks the domain that serves region from the account's
@@ -208,25 +235,23 @@ func domainIDOf(d api.CommonOpenStackDomain) string {
 //
 // API WORKAROUND: every identity call is addressed to a domain ID and the API
 // has no region-addressed lookup, so the domain is inferred from the provider's
-// region (accounts have one domain per area). The sole domain is used when the
-// account has only one; anything else needs an explicit domain_id.
-func domainForRegion(domains []api.CommonOpenStackDomain, region string) (string, error) {
-	var matches []api.CommonOpenStackDomain
+// region (accounts have one domain per identity authority). The sole domain is
+// used when the account has only one; anything else needs an explicit
+// domain_id.
+func domainForRegion(domains []openstackDomain, region string) (string, error) {
+	var matches []openstackDomain
 	for _, d := range domains {
-		for _, r := range d.Area.Regions {
-			if strings.EqualFold(r.Tag, region) {
-				matches = append(matches, d)
-				break
-			}
+		if d.servesRegion(region) {
+			matches = append(matches, d)
 		}
 	}
 	switch {
 	case len(matches) == 1:
-		return domainIDOf(matches[0]), nil
+		return matches[0].ID, nil
 	case len(domains) == 0:
 		return "", errors.New("the account has no OpenStack domains")
 	case len(matches) == 0 && len(domains) == 1:
-		return domainIDOf(domains[0]), nil
+		return domains[0].ID, nil
 	case len(matches) == 0:
 		return "", fmt.Errorf("none of the account's %d OpenStack domains serves region %q; set domain_id explicitly. Available domains: %s",
 			len(domains), region, describeDomains(domains))
@@ -236,17 +261,17 @@ func domainForRegion(domains []api.CommonOpenStackDomain, region string) (string
 	}
 }
 
-// describeDomains lists domains as "id (name, area)" for diagnostics.
-func describeDomains(domains []api.CommonOpenStackDomain) string {
+// describeDomains lists domains as "id (name, authority)" for diagnostics.
+func describeDomains(domains []openstackDomain) string {
 	parts := make([]string, 0, len(domains))
 	for _, d := range domains {
-		label := domainIDOf(d)
+		label := d.ID
 		var extra []string
-		if d.Name != nil && *d.Name != "" {
-			extra = append(extra, *d.Name)
+		if d.Name != "" {
+			extra = append(extra, d.Name)
 		}
-		if d.Area.Name != "" {
-			extra = append(extra, d.Area.Name)
+		if d.Authority != "" {
+			extra = append(extra, d.Authority)
 		}
 		if len(extra) > 0 {
 			label += " (" + strings.Join(extra, ", ") + ")"
@@ -272,18 +297,16 @@ func domainRegionTag(ctx context.Context, cfg *ProviderConfig, domainID string) 
 		return "", fmt.Errorf("listing OpenStack domains to find a region for domain %s: %w", domainID, err)
 	}
 	for _, d := range domains {
-		if domainIDOf(d) != domainID {
+		if d.ID != domainID {
 			continue
 		}
 		// Prefer the provider's region when this domain serves it, so the probe
 		// stays on the region the rest of the run uses.
-		for _, r := range d.Area.Regions {
-			if strings.EqualFold(r.Tag, cfg.Region) {
-				return r.Tag, nil
-			}
+		if d.servesRegion(cfg.Region) {
+			return cfg.Region, nil
 		}
-		if len(d.Area.Regions) > 0 {
-			return d.Area.Regions[0].Tag, nil
+		if len(d.Regions) > 0 {
+			return d.Regions[0], nil
 		}
 		return "", fmt.Errorf("OpenStack domain %s serves no regions", domainID)
 	}
