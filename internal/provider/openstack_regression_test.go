@@ -284,7 +284,7 @@ resource "cleura_openstack_project" "p" {
 resource "cleura_openstack_user" "u" {
   domain_id           = %[1]q
   name                = "second-user"
-  password            = "First-Passw0rd"
+  password_wo         = "First-Passw0rd"
   password_wo_version = "1"
   enabled             = false
 }
@@ -303,7 +303,7 @@ resource "cleura_openstack_project" "p" {
 resource "cleura_openstack_user" "u" {
   domain_id           = %[1]q
   name                = "second-user-renamed"
-  password            = "Second-Passw0rd"
+  password_wo         = "Second-Passw0rd"
   password_wo_version = "2"
   description         = "described too"
   enabled             = true
@@ -337,7 +337,7 @@ resource "cleura_openstack_project" "p" {
 resource "cleura_openstack_user" "u" {
   domain_id           = %[1]q
   name                = "second-user-renamed"
-  password            = "Second-Passw0rd"
+  password_wo         = "Second-Passw0rd"
   password_wo_version = "2"
   enabled             = true
 }

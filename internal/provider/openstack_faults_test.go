@@ -50,7 +50,7 @@ resource "cleura_openstack_project" "p" {
 		config := errProvider + `
 resource "cleura_openstack_user" "u" {
   name                = "fault-user"
-  password            = "Some-Passw0rd"
+  password_wo         = "Some-Passw0rd"
   password_wo_version = "1"
   description         = "needs a follow-up patch"
 }
@@ -92,7 +92,7 @@ func TestOpenStackDriftHandling(t *testing.T) {
 		config := errProvider + `
 resource "cleura_openstack_user" "u" {
   name                = "drift-user"
-  password            = "Some-Passw0rd"
+  password_wo         = "Some-Passw0rd"
   password_wo_version = "1"
 }
 `
@@ -127,7 +127,7 @@ resource "cleura_openstack_project" "p" {
 
 resource "cleura_openstack_user" "u" {
   name                = "drift-user2"
-  password            = "Some-Passw0rd"
+  password_wo         = "Some-Passw0rd"
   password_wo_version = "1"
 }
 

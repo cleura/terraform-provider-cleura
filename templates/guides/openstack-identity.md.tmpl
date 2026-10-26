@@ -25,7 +25,7 @@ resource "cleura_openstack_project" "sandbox" {
 
 resource "cleura_openstack_user" "ci" {
   name                = "ci-deployer"
-  password            = var.ci_password # write-only, Terraform 1.11+
+  password_wo         = var.ci_password # write-only, Terraform 1.11+
   password_wo_version = "1"
 }
 

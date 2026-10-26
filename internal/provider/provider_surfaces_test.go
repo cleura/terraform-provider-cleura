@@ -37,7 +37,7 @@ provider "cleura" {
 
 resource "cleura_openstack_user" "shared" {
   name                = "tfsurface-user"
-  password            = "Init1al-Passw0rd"
+  password_wo         = "Init1al-Passw0rd"
   password_wo_version = "1"
 }`
 
@@ -129,7 +129,7 @@ provider "cleura" {
 
 resource "cleura_openstack_user" "with_gardener" {
   name                = "tfsurface-both"
-  password            = "Init1al-Passw0rd"
+  password_wo         = "Init1al-Passw0rd"
   password_wo_version = "1"
 }
 

@@ -89,7 +89,7 @@ provider "cleura" {
 
 resource "cleura_openstack_user" "leaky" {
   name                = "tfsec-user"
-  password            = %q
+  password_wo         = %q
   password_wo_version = "1"
 }`, password)
 
@@ -179,7 +179,7 @@ provider "cleura" {
 
 resource "cleura_openstack_user" "secret" {
   name                = "tfsec-user"
-  password            = %q
+  password_wo         = %q
   password_wo_version = "1"
   description         = "secret handling test"
 }`, secretTestPassword)
@@ -226,7 +226,7 @@ resource "cleura_openstack_user" "secret" {
 		Steps: []resource.TestStep{{
 			Config: config,
 			Check: resource.ComposeAggregateTestCheckFunc(
-				resource.TestCheckNoResourceAttr("cleura_openstack_user.secret", "password"),
+				resource.TestCheckNoResourceAttr("cleura_openstack_user.secret", "password_wo"),
 				resource.TestCheckResourceAttr("cleura_openstack_user.secret", "password_wo_version", "1"),
 				noSecretOnDisk,
 				func(*terraform.State) error {
