@@ -433,11 +433,16 @@ func (r *authenticationConfigurationResource) Update(ctx context.Context, req re
 		resp.Diagnostics.Append(r.reconcileShoots(ctx, plan.Name.ValueString())...)
 		return
 	}
-	if users := r.shootsUsing(ctx, plan.Name.ValueString()); users != "" {
-		resp.Diagnostics.AddWarning("Clusters keep the previous configuration for now",
-			fmt.Sprintf("Authentication configuration %q was updated. These clusters use it and keep the previous version "+
-				"until their next reconcile, at the latest in their maintenance window: %s.\n\n"+
-				"To apply changes right away, set reconcile_on_update = true.", plan.Name.ValueString(), users))
+	// Best effort: without the list there is nothing useful to warn about.
+	if shoots, err := r.listShootsUsing(ctx, plan.Name.ValueString()); err == nil && len(shoots) > 0 {
+		clusters := make([]clusterRef, 0, len(shoots))
+		for _, s := range shoots {
+			clusters = append(clusters, clusterRef{s.Name, s.OpenstackProjectId, s.OpenstackRegionTag})
+		}
+		resp.Diagnostics.AddWarning(previousConfigSummary,
+			fmt.Sprintf("%q was updated, but %s still use%s the previous version %s:\n\n%s\n\n"+
+				"To apply this change now, reconcile those clusters. To apply future changes right away, set reconcile_on_update = true.",
+				plan.Name.ValueString(), countClusters(len(clusters)), verbS(len(clusters)), untilReconciled, formatClusters(clusters)))
 	}
 }
 
@@ -456,31 +461,128 @@ func (r *authenticationConfigurationResource) Update(ctx context.Context, req re
 // the update up at its next reconcile, at the latest in its maintenance window.
 func (r *authenticationConfigurationResource) reconcileShoots(ctx context.Context, name string) diag.Diagnostics {
 	var diags diag.Diagnostics
-	const later = "It keeps the previous version of the configuration until its next reconcile, at the latest in its maintenance window."
 	var results []api.GardenerIdentityProviderShootReconcileResult
 	response, err := r.config.Client.GardenerIdentityProviderReconcileShootsForAuthenticationConfiguration(ctx, r.config.Cloud, name)
 	if err == nil {
 		err = decodeJSON(response, &results)
 	}
 	if err != nil {
-		diags.AddWarning("Clusters using the authentication configuration were not updated",
-			fmt.Sprintf("Authentication configuration %q was updated, but asking the clusters that use it to apply the change failed: %s\n\n"+
-				"Each of those clusters keeps the previous version of the configuration until its next reconcile, at the latest in its maintenance window.", name, err))
+		diags.AddWarning(previousConfigSummary,
+			fmt.Sprintf("%q was updated, but reconciling the clusters that use it failed: %s\n\n"+
+				"They keep using the previous version %s.", name, err, untilReconciled))
 		return diags
 	}
+	var busy, failed []clusterRef
+	statuses := map[string]bool{}
 	for _, s := range results {
-		cluster := fmt.Sprintf("Cluster %q (project %s, region %s)", s.Name, s.OpenstackProjectId, s.OpenstackRegionTag)
+		c := clusterRef{s.Name, s.OpenstackProjectId, s.OpenstackRegionTag}
 		switch s.Status {
 		case api.Accepted:
 		case api.SkippedOperationInProgress:
-			diags.AddWarning("Cluster not updated yet",
-				fmt.Sprintf("%s is busy with another operation, so it was not asked to apply the change to authentication configuration %q. %s", cluster, name, later))
+			busy = append(busy, c)
 		default:
-			diags.AddWarning("Cluster not updated",
-				fmt.Sprintf("%s could not be asked to apply the change to authentication configuration %q (status %q). %s", cluster, name, s.Status, later))
+			failed = append(failed, c)
+			statuses[string(s.Status)] = true
 		}
 	}
+	missed := len(busy) + len(failed)
+	if missed == 0 {
+		return diags
+	}
+	var groups []string
+	if len(busy) > 0 {
+		groups = append(groups, "Busy with another operation:\n"+indent(formatClusters(busy)))
+	}
+	if len(failed) > 0 {
+		groups = append(groups, fmt.Sprintf("Could not be reconciled (status %s):\n%s", quotedKeys(statuses), indent(formatClusters(failed))))
+	}
+	diags.AddWarning(previousConfigSummary,
+		fmt.Sprintf("%q was updated and %d of its %s reconciled. These %d still use the previous version %s:\n\n%s",
+			name, len(results)-missed, countClusters(len(results))+wereWas(len(results)-missed), missed, untilReconciled, strings.Join(groups, "\n\n")))
 	return diags
+}
+
+// previousConfigSummary is the summary of every warning about clusters that
+// haven't applied an update yet.
+const previousConfigSummary = "Clusters keep the previous authentication configuration"
+
+const untilReconciled = "until Gardener next reconciles them, at the latest in their maintenance window"
+
+// maxListedClusters bounds the clusters a warning names, so the output stays
+// readable for configurations shared by many clusters.
+const maxListedClusters = 20
+
+type clusterRef struct{ name, project, region string }
+
+// formatClusters lists clusters one line per region and project, sorted, with
+// at most maxListedClusters names:
+//
+//	Kna1, project 1b43…: api-prod, web-prod
+//	Sto2, project eb76…: batch-prod
+func formatClusters(clusters []clusterRef) string {
+	sorted := append([]clusterRef(nil), clusters...)
+	sort.Slice(sorted, func(i, j int) bool {
+		a, b := sorted[i], sorted[j]
+		if a.region != b.region {
+			return a.region < b.region
+		}
+		if a.project != b.project {
+			return a.project < b.project
+		}
+		return a.name < b.name
+	})
+	shown := sorted
+	if len(shown) > maxListedClusters {
+		shown = shown[:maxListedClusters]
+	}
+	var lines []string
+	for i := 0; i < len(shown); {
+		j := i
+		var names []string
+		for ; j < len(shown) && shown[j].region == shown[i].region && shown[j].project == shown[i].project; j++ {
+			names = append(names, shown[j].name)
+		}
+		lines = append(lines, fmt.Sprintf("  %s, project %s: %s", shown[i].region, shown[i].project, strings.Join(names, ", ")))
+		i = j
+	}
+	if more := len(sorted) - len(shown); more > 0 {
+		lines = append(lines, fmt.Sprintf("  … and %d more", more))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func indent(s string) string { return "  " + strings.ReplaceAll(s, "\n", "\n  ") }
+
+func countClusters(n int) string {
+	if n == 1 {
+		return "1 cluster"
+	}
+	return fmt.Sprintf("%d clusters", n)
+}
+
+// verbS is the "s" of "uses" for a singular subject.
+func verbS(n int) string {
+	if n == 1 {
+		return "s"
+	}
+	return ""
+}
+
+// wereWas completes "N of its M clusters were reconciled".
+func wereWas(reconciled int) string {
+	if reconciled == 1 {
+		return " was"
+	}
+	return " were"
+}
+
+func quotedKeys(m map[string]bool) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, fmt.Sprintf("%q", k))
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
 }
 
 func (r *authenticationConfigurationResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -533,12 +635,8 @@ func (r *authenticationConfigurationResource) get(ctx context.Context, name stri
 // shootsUsing lists the clusters that use a configuration, for an error
 // message; it returns "" if the list cannot be fetched.
 func (r *authenticationConfigurationResource) shootsUsing(ctx context.Context, name string) string {
-	response, err := r.config.Client.GardenerIdentityProviderListShootsForAuthenticationConfiguration(ctx, r.config.Cloud, name)
+	shoots, err := r.listShootsUsing(ctx, name)
 	if err != nil {
-		return ""
-	}
-	var shoots []api.GardenerIdentityProviderShootReference
-	if decodeJSON(response, &shoots) != nil {
 		return ""
 	}
 	names := make([]string, 0, len(shoots))
@@ -547,6 +645,19 @@ func (r *authenticationConfigurationResource) shootsUsing(ctx context.Context, n
 	}
 	sort.Strings(names)
 	return strings.Join(names, ", ")
+}
+
+// listShootsUsing returns the clusters that use a configuration.
+func (r *authenticationConfigurationResource) listShootsUsing(ctx context.Context, name string) ([]api.GardenerIdentityProviderShootReference, error) {
+	response, err := r.config.Client.GardenerIdentityProviderListShootsForAuthenticationConfiguration(ctx, r.config.Cloud, name)
+	if err != nil {
+		return nil, err
+	}
+	var shoots []api.GardenerIdentityProviderShootReference
+	if err := decodeJSON(response, &shoots); err != nil {
+		return nil, err
+	}
+	return shoots, nil
 }
 
 // ----- conversion -----

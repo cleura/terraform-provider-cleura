@@ -425,10 +425,10 @@ func TestIssuerURLProblem(t *testing.T) {
 	}
 }
 
-// TestReconcileShootsReportsEachCluster: clusters that could not be asked to
-// apply an update are named in a warning, never an error, because the
+// TestReconcileShootsReportsMissedClusters: clusters that could not be asked
+// to apply an update are listed in one warning, never an error, because the
 // configuration itself was updated and another apply would have nothing to do.
-func TestReconcileShootsReportsEachCluster(t *testing.T) {
+func TestReconcileShootsReportsMissedClusters(t *testing.T) {
 	mock := newMockAuthConfigAPI()
 	mock.reconciled = []api.GardenerIdentityProviderShootReconcileResult{
 		{Name: "prod", OpenstackProjectId: "p1", OpenstackRegionTag: "Sto2", Status: api.Accepted},
@@ -438,17 +438,22 @@ func TestReconcileShootsReportsEachCluster(t *testing.T) {
 	r := &authenticationConfigurationResource{config: newTestConfig(t, mock.handler())}
 
 	diags := r.reconcileShoots(context.Background(), "corp-sso")
-	if diags.HasError() {
-		t.Fatalf("unexpected error: %v", diags)
+	if diags.HasError() || diags.WarningsCount() != 1 {
+		t.Fatalf("diagnostics = %v; want exactly one warning", diags)
 	}
-	var details []string
-	for _, d := range diags.Warnings() {
-		details = append(details, d.Detail())
+	detail := diags.Warnings()[0].Detail()
+	t.Logf("rendered warning:\n%s", detail)
+	for _, want := range []string{
+		`"corp-sso" was updated and 1 of its 3 clusters was reconciled. These 2 still use the previous version`,
+		"Busy with another operation:\n    Sto2, project p1: busy",
+		`Could not be reconciled (status "failed"):` + "\n    Fra1, project p2: broken",
+	} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("warning lacks %q", want)
+		}
 	}
-	all := strings.Join(details, "\n")
-	if len(details) != 2 || !strings.Contains(all, `Cluster "busy"`) || !strings.Contains(all, `Cluster "broken" (project p2, region Fra1)`) ||
-		strings.Contains(all, `"prod"`) || !strings.Contains(all, "maintenance window") {
-		t.Errorf("warnings = %q; want one for busy and one for broken, none for prod", details)
+	if strings.Contains(detail, "prod") {
+		t.Errorf("warning names the reconciled cluster prod")
 	}
 
 	// A failed request is a warning too.
@@ -458,6 +463,29 @@ func TestReconcileShootsReportsEachCluster(t *testing.T) {
 	diags = failing.reconcileShoots(context.Background(), "corp-sso")
 	if diags.HasError() || diags.WarningsCount() != 1 {
 		t.Errorf("failed request: diagnostics = %v; want exactly one warning", diags)
+	}
+}
+
+// TestFormatClusters: one line per region and project, sorted, and capped so a
+// configuration shared by many clusters still gives a readable warning.
+func TestFormatClusters(t *testing.T) {
+	var clusters []clusterRef
+	for i := 25; i >= 1; i-- {
+		region, project := "Kna1", "p-kna"
+		if i%3 == 0 {
+			region, project = "Sto2", "p-sto"
+		}
+		clusters = append(clusters, clusterRef{fmt.Sprintf("c%02d", i), project, region})
+	}
+	got := formatClusters(clusters)
+	t.Logf("rendered:\n%s", got)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 3 || !strings.HasPrefix(lines[0], "  Kna1, project p-kna: c01, c02, c04") ||
+		!strings.HasPrefix(lines[1], "  Sto2, project p-sto: ") || lines[2] != "  … and 5 more" {
+		t.Errorf("formatClusters =\n%s", got)
+	}
+	if n := len(regexp.MustCompile(`\bc\d\d\b`).FindAllString(got, -1)); n != 20 {
+		t.Errorf("listed %d clusters; want 20", n)
 	}
 }
 
