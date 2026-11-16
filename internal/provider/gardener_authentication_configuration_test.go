@@ -445,8 +445,8 @@ func TestReconcileShootsReportsMissedClusters(t *testing.T) {
 	t.Logf("rendered warning:\n%s", detail)
 	for _, want := range []string{
 		`"corp-sso" was updated and 1 of its 3 clusters was reconciled. These 2 still use the previous version`,
-		"Busy with another operation:\n    Sto2, project p1: busy",
-		`Could not be reconciled (status "failed"):` + "\n    Fra1, project p2: broken",
+		"Busy with another operation:\n  Sto2, project p1: busy",
+		`Could not be reconciled (status "failed"):` + "\n  Fra1, project p2: broken",
 	} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("warning lacks %q", want)
@@ -466,26 +466,57 @@ func TestReconcileShootsReportsMissedClusters(t *testing.T) {
 	}
 }
 
-// TestFormatClusters: one line per region and project, sorted, and capped so a
-// configuration shared by many clusters still gives a readable warning.
+// TestFormatClusters: one line per region and project, at most five names per
+// line and at most twenty project lines, so a configuration shared by many
+// clusters still gives a readable warning.
 func TestFormatClusters(t *testing.T) {
-	var clusters []clusterRef
-	for i := 25; i >= 1; i-- {
-		region, project := "Kna1", "p-kna"
-		if i%3 == 0 {
-			region, project = "Sto2", "p-sto"
-		}
-		clusters = append(clusters, clusterRef{fmt.Sprintf("c%02d", i), project, region})
+	one := []clusterRef{{"api-prod", "p01", "Kna1"}}
+	if got, want := formatClusters(one), "  Kna1, project p01: api-prod"; got != want {
+		t.Errorf("one cluster: %q; want %q", got, want)
 	}
-	got := formatClusters(clusters)
+	if got := describeClusters(one); got != "1 cluster" {
+		t.Errorf("describeClusters(one) = %q", got)
+	}
+
+	// 30 projects; project i has 3 + i%6 clusters, 165 in all.
+	var many []clusterRef
+	total := 0
+	for i := 30; i >= 1; i-- {
+		region := "Kna1"
+		if i%2 == 0 {
+			region = "Sto2"
+		}
+		for j := 3 + i%6; j >= 1; j-- {
+			many = append(many, clusterRef{fmt.Sprintf("c%02d-%d", i, j), fmt.Sprintf("p%02d", i), region})
+			total++
+		}
+	}
+	got := formatClusters(many)
 	t.Logf("rendered:\n%s", got)
 	lines := strings.Split(got, "\n")
-	if len(lines) != 3 || !strings.HasPrefix(lines[0], "  Kna1, project p-kna: c01, c02, c04") ||
-		!strings.HasPrefix(lines[1], "  Sto2, project p-sto: ") || lines[2] != "  … and 5 more" {
-		t.Errorf("formatClusters =\n%s", got)
+	if len(lines) != maxProjectLines+1 {
+		t.Fatalf("%d lines; want %d project lines and a summary", len(lines), maxProjectLines)
 	}
-	if n := len(regexp.MustCompile(`\bc\d\d\b`).FindAllString(got, -1)); n != 20 {
-		t.Errorf("listed %d clusters; want 20", n)
+	// Kna1 has the odd projects, sorted: p01 (4 clusters), p03 (6), p05 (8), ...
+	if lines[0] != "  Kna1, project p01: c01-1, c01-2, c01-3, c01-4" {
+		t.Errorf("first line = %q", lines[0])
+	}
+	if lines[2] != "  Kna1, project p05: c05-1, c05-2, c05-3, c05-4, c05-5 (+3 more)" {
+		t.Errorf("third line = %q", lines[2])
+	}
+	hidden := 0
+	for _, c := range many {
+		var n int
+		fmt.Sscanf(c.project, "p%d", &n)
+		if c.region == "Sto2" && n > 10 { // Sto2 sorts after Kna1's 15 projects: p02..p10 are shown
+			hidden++
+		}
+	}
+	if want := fmt.Sprintf("  … and 10 more projects with %d clusters", hidden); lines[maxProjectLines] != want {
+		t.Errorf("summary = %q; want %q", lines[maxProjectLines], want)
+	}
+	if got := describeClusters(many); got != fmt.Sprintf("%d clusters in 30 projects", total) {
+		t.Errorf("describeClusters(many) = %q", got)
 	}
 }
 

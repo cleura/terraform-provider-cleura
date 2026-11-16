@@ -439,10 +439,15 @@ func (r *authenticationConfigurationResource) Update(ctx context.Context, req re
 		for _, s := range shoots {
 			clusters = append(clusters, clusterRef{s.Name, s.OpenstackProjectId, s.OpenstackRegionTag})
 		}
+		those := "those clusters"
+		if len(clusters) == 1 {
+			those = "that cluster"
+		}
 		resp.Diagnostics.AddWarning(previousConfigSummary,
-			fmt.Sprintf("%q was updated, but %s still use%s the previous version %s:\n\n%s\n\n"+
-				"To apply this change now, reconcile those clusters. To apply future changes right away, set reconcile_on_update = true.",
-				plan.Name.ValueString(), countClusters(len(clusters)), verbS(len(clusters)), untilReconciled, formatClusters(clusters)))
+			fmt.Sprintf("%q was updated, but %s still %s the previous version %s:\n\n%s\n\n"+
+				"To apply this change now, reconcile %s. To apply future changes right away, set reconcile_on_update = true.",
+				plan.Name.ValueString(), describeClusters(clusters), plural(len(clusters), "uses", "use"),
+				untilReconciled(len(clusters)), formatClusters(clusters), those))
 	}
 }
 
@@ -469,7 +474,7 @@ func (r *authenticationConfigurationResource) reconcileShoots(ctx context.Contex
 	if err != nil {
 		diags.AddWarning(previousConfigSummary,
 			fmt.Sprintf("%q was updated, but reconciling the clusters that use it failed: %s\n\n"+
-				"They keep using the previous version %s.", name, err, untilReconciled))
+				"They keep using the previous version %s.", name, err, untilReconciled(2)))
 		return diags
 	}
 	var busy, failed []clusterRef
@@ -491,14 +496,16 @@ func (r *authenticationConfigurationResource) reconcileShoots(ctx context.Contex
 	}
 	var groups []string
 	if len(busy) > 0 {
-		groups = append(groups, "Busy with another operation:\n"+indent(formatClusters(busy)))
+		groups = append(groups, "Busy with another operation:\n"+formatClusters(busy))
 	}
 	if len(failed) > 0 {
-		groups = append(groups, fmt.Sprintf("Could not be reconciled (status %s):\n%s", quotedKeys(statuses), indent(formatClusters(failed))))
+		groups = append(groups, fmt.Sprintf("Could not be reconciled (status %s):\n%s", quotedKeys(statuses), formatClusters(failed)))
 	}
+	reconciled := len(results) - missed
 	diags.AddWarning(previousConfigSummary,
-		fmt.Sprintf("%q was updated and %d of its %s reconciled. These %d still use the previous version %s:\n\n%s",
-			name, len(results)-missed, countClusters(len(results))+wereWas(len(results)-missed), missed, untilReconciled, strings.Join(groups, "\n\n")))
+		fmt.Sprintf("%q was updated and %d of its %s %s reconciled. %s the previous version %s:\n\n%s",
+			name, reconciled, plural(len(results), "cluster", fmt.Sprintf("%d clusters", len(results))), plural(reconciled, "was", "were"),
+			plural(missed, "The other one still uses", fmt.Sprintf("These %d still use", missed)), untilReconciled(missed), strings.Join(groups, "\n\n")))
 	return diags
 }
 
@@ -506,74 +513,102 @@ func (r *authenticationConfigurationResource) reconcileShoots(ctx context.Contex
 // haven't applied an update yet.
 const previousConfigSummary = "Clusters keep the previous authentication configuration"
 
-const untilReconciled = "until Gardener next reconciles them, at the latest in their maintenance window"
+// untilReconciled says when n clusters pick an update up by themselves.
+func untilReconciled(n int) string {
+	if n == 1 {
+		return "until Gardener next reconciles it, at the latest in its maintenance window"
+	}
+	return "until Gardener next reconciles them, at the latest in their maintenance window"
+}
 
-// maxListedClusters bounds the clusters a warning names, so the output stays
-// readable for configurations shared by many clusters.
-const maxListedClusters = 20
+// Limits that keep a warning readable for a configuration shared by many
+// clusters: every project gets one line, up to maxProjectLines lines, each
+// naming up to maxNamesPerLine clusters.
+const (
+	maxProjectLines = 20
+	maxNamesPerLine = 5
+)
 
 type clusterRef struct{ name, project, region string }
 
-// formatClusters lists clusters one line per region and project, sorted, with
-// at most maxListedClusters names:
-//
-//	Kna1, project 1b43…: api-prod, web-prod
-//	Sto2, project eb76…: batch-prod
-func formatClusters(clusters []clusterRef) string {
-	sorted := append([]clusterRef(nil), clusters...)
-	sort.Slice(sorted, func(i, j int) bool {
-		a, b := sorted[i], sorted[j]
-		if a.region != b.region {
-			return a.region < b.region
+// clusterGroup is the clusters of one project in one region, names sorted.
+type clusterGroup struct {
+	region, project string
+	names           []string
+}
+
+func groupClusters(clusters []clusterRef) []clusterGroup {
+	byKey := map[[2]string]*clusterGroup{}
+	var groups []*clusterGroup
+	for _, c := range clusters {
+		key := [2]string{c.region, c.project}
+		g, ok := byKey[key]
+		if !ok {
+			g = &clusterGroup{region: c.region, project: c.project}
+			byKey[key] = g
+			groups = append(groups, g)
 		}
-		if a.project != b.project {
-			return a.project < b.project
+		g.names = append(g.names, c.name)
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		if groups[i].region != groups[j].region {
+			return groups[i].region < groups[j].region
 		}
-		return a.name < b.name
+		return groups[i].project < groups[j].project
 	})
-	shown := sorted
-	if len(shown) > maxListedClusters {
-		shown = shown[:maxListedClusters]
+	out := make([]clusterGroup, len(groups))
+	for i, g := range groups {
+		sort.Strings(g.names)
+		out[i] = *g
 	}
+	return out
+}
+
+// describeClusters is "1 cluster", "8 clusters" or "12 clusters in 2 projects".
+func describeClusters(clusters []clusterRef) string {
+	s := plural(len(clusters), "1 cluster", fmt.Sprintf("%d clusters", len(clusters)))
+	if projects := len(groupClusters(clusters)); projects > 1 {
+		s += fmt.Sprintf(" in %d projects", projects)
+	}
+	return s
+}
+
+// formatClusters lists clusters one line per region and project:
+//
+//	Kna1, project 1b43…: api-prod, api-staging, auth-prod, auth-staging, billing-prod (+3 more)
+//	Sto2, project eb76…: batch-prod
+//	… and 10 more projects with 47 clusters
+func formatClusters(clusters []clusterRef) string {
+	groups := groupClusters(clusters)
 	var lines []string
-	for i := 0; i < len(shown); {
-		j := i
-		var names []string
-		for ; j < len(shown) && shown[j].region == shown[i].region && shown[j].project == shown[i].project; j++ {
-			names = append(names, shown[j].name)
+	for i, g := range groups {
+		if i == maxProjectLines {
+			hidden := 0
+			for _, rest := range groups[i:] {
+				hidden += len(rest.names)
+			}
+			lines = append(lines, fmt.Sprintf("  … and %s with %s",
+				plural(len(groups)-i, "1 more project", fmt.Sprintf("%d more projects", len(groups)-i)),
+				plural(hidden, "1 cluster", fmt.Sprintf("%d clusters", hidden))))
+			break
 		}
-		lines = append(lines, fmt.Sprintf("  %s, project %s: %s", shown[i].region, shown[i].project, strings.Join(names, ", ")))
-		i = j
-	}
-	if more := len(sorted) - len(shown); more > 0 {
-		lines = append(lines, fmt.Sprintf("  … and %d more", more))
+		names := g.names
+		more := ""
+		if len(names) > maxNamesPerLine {
+			more = fmt.Sprintf(" (+%d more)", len(names)-maxNamesPerLine)
+			names = names[:maxNamesPerLine]
+		}
+		lines = append(lines, fmt.Sprintf("  %s, project %s: %s%s", g.region, g.project, strings.Join(names, ", "), more))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func indent(s string) string { return "  " + strings.ReplaceAll(s, "\n", "\n  ") }
-
-func countClusters(n int) string {
+// plural picks the singular form for n == 1.
+func plural(n int, one, many string) string {
 	if n == 1 {
-		return "1 cluster"
+		return one
 	}
-	return fmt.Sprintf("%d clusters", n)
-}
-
-// verbS is the "s" of "uses" for a singular subject.
-func verbS(n int) string {
-	if n == 1 {
-		return "s"
-	}
-	return ""
-}
-
-// wereWas completes "N of its M clusters were reconciled".
-func wereWas(reconciled int) string {
-	if reconciled == 1 {
-		return " was"
-	}
-	return " were"
+	return many
 }
 
 func quotedKeys(m map[string]bool) string {
