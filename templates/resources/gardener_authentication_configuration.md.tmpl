@@ -20,7 +20,10 @@ Group names come through exactly as the identity provider sends them: a Keycloak
   Each issuer's `url` must be `https` and unique within the configuration; several audiences for one issuer go in its `audiences` list.
 - `certificate_authority` takes the issuer's CA as PEM; the provider encodes it.
   It is not needed for certificates from a public CA.
-- Changes to an attached configuration are applied in place.
+- A change to a configuration is stored right away, but clusters that use it keep the previous version until they are reconciled, at the latest in their maintenance window.
+  Set `reconcile_on_update = true` to reconcile them after each update, which applies the change within a few minutes; Terraform doesn't wait for it.
+  This includes clusters that use the configuration but are managed outside this Terraform configuration.
+  With the default `false`, the update warns which clusters still have the previous version.
   Removing `authentication_configuration_name` from a cluster, or destroying the configuration after its clusters have moved elsewhere, detaches it.
 - The configuration can't be deleted while a cluster uses it.
   To move clusters to a new configuration and delete the old one in the same apply, set `lifecycle { create_before_destroy = true }`, so Terraform updates the clusters before deleting the configuration.

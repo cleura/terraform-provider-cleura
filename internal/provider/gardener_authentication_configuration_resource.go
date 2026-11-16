@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -42,9 +43,10 @@ type authenticationConfigurationResource struct {
 }
 
 type authConfigModel struct {
-	ID      types.String           `tfsdk:"id"`
-	Name    types.String           `tfsdk:"name"`
-	Issuers map[string]issuerModel `tfsdk:"issuers"`
+	ID                types.String           `tfsdk:"id"`
+	Name              types.String           `tfsdk:"name"`
+	Issuers           map[string]issuerModel `tfsdk:"issuers"`
+	ReconcileOnUpdate types.Bool             `tfsdk:"reconcile_on_update"`
 }
 
 type issuerModel struct {
@@ -148,6 +150,17 @@ func (r *authenticationConfigurationResource) Schema(_ context.Context, _ resour
 					stringvalidator.LengthBetween(1, 32),
 					stringvalidator.RegexMatches(dnsLabelPattern, dnsLabelMessage),
 				},
+			},
+			"reconcile_on_update": schema.BoolAttribute{
+				Optional: true,
+				Computed: true,
+				Default:  booldefault.StaticBool(false),
+				MarkdownDescription: "Whether a change to the configuration is applied to the clusters that use it right " +
+					"away. When `true`, each cluster using it, including clusters managed outside this Terraform " +
+					"configuration, is reconciled after an update; the change is live in a few minutes, but Terraform " +
+					"doesn't wait for it. When `false` (the default), clusters keep the previous version until their next " +
+					"reconcile, at the latest in their maintenance window, and the update warns which clusters those are. " +
+					"Changing only this attribute doesn't contact the clusters.",
 			},
 			"issuers": schema.MapNestedAttribute{
 				Required: true,
@@ -374,6 +387,10 @@ func (r *authenticationConfigurationResource) Read(ctx context.Context, req reso
 		resp.Diagnostics.AddError("Failed to read authentication configuration", err.Error())
 		return
 	}
+	if state.ReconcileOnUpdate.IsNull() {
+		// After an import: the API doesn't store it, so take the default.
+		state.ReconcileOnUpdate = types.BoolValue(false)
+	}
 	resp.Diagnostics.Append(setAuthConfigState(&state, got)...)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -384,7 +401,15 @@ func (r *authenticationConfigurationResource) Update(ctx context.Context, req re
 	}
 	var plan authConfigModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	var planIssuers, stateIssuers types.Map
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("issuers"), &planIssuers)...)
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("issuers"), &stateIssuers)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if planIssuers.Equal(stateIssuers) {
+		// Only reconcile_on_update changed: nothing to send, and no cluster to touch.
+		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 		return
 	}
 	// The update replaces all issuers, so the full set is sent every time.
@@ -401,6 +426,61 @@ func (r *authenticationConfigurationResource) Update(ctx context.Context, req re
 	}
 	resp.Diagnostics.Append(setAuthConfigState(&plan, &updated)...)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if plan.ReconcileOnUpdate.ValueBool() {
+		resp.Diagnostics.Append(r.reconcileShoots(ctx, plan.Name.ValueString())...)
+		return
+	}
+	if users := r.shootsUsing(ctx, plan.Name.ValueString()); users != "" {
+		resp.Diagnostics.AddWarning("Clusters keep the previous configuration for now",
+			fmt.Sprintf("Authentication configuration %q was updated. These clusters use it and keep the previous version "+
+				"until their next reconcile, at the latest in their maintenance window: %s.\n\n"+
+				"To apply changes right away, set reconcile_on_update = true.", plan.Name.ValueString(), users))
+	}
+}
+
+// reconcileShoots rolls an updated configuration out to the clusters that use
+// it (reconcile_on_update), including clusters managed outside this Terraform
+// configuration: the API finds them itself. It doesn't wait for the rollout.
+//
+// API WORKAROUND: an update is stored, but clusters keep the previous version
+// until they are reconciled. Verified on production on 2026-11-16: a cluster
+// still had the old issuer 10 minutes after the update, and had the new one 2
+// minutes after a reconcile.
+//
+// Problems are warnings, not errors. The configuration itself was updated, and
+// the next refresh reads it back, so a failed rollout leaves no change for
+// another apply to retry; an error would only fail the run. Each cluster picks
+// the update up at its next reconcile, at the latest in its maintenance window.
+func (r *authenticationConfigurationResource) reconcileShoots(ctx context.Context, name string) diag.Diagnostics {
+	var diags diag.Diagnostics
+	const later = "It keeps the previous version of the configuration until its next reconcile, at the latest in its maintenance window."
+	var results []api.GardenerIdentityProviderShootReconcileResult
+	response, err := r.config.Client.GardenerIdentityProviderReconcileShootsForAuthenticationConfiguration(ctx, r.config.Cloud, name)
+	if err == nil {
+		err = decodeJSON(response, &results)
+	}
+	if err != nil {
+		diags.AddWarning("Clusters using the authentication configuration were not updated",
+			fmt.Sprintf("Authentication configuration %q was updated, but asking the clusters that use it to apply the change failed: %s\n\n"+
+				"Each of those clusters keeps the previous version of the configuration until its next reconcile, at the latest in its maintenance window.", name, err))
+		return diags
+	}
+	for _, s := range results {
+		cluster := fmt.Sprintf("Cluster %q (project %s, region %s)", s.Name, s.OpenstackProjectId, s.OpenstackRegionTag)
+		switch s.Status {
+		case api.Accepted:
+		case api.SkippedOperationInProgress:
+			diags.AddWarning("Cluster not updated yet",
+				fmt.Sprintf("%s is busy with another operation, so it was not asked to apply the change to authentication configuration %q. %s", cluster, name, later))
+		default:
+			diags.AddWarning("Cluster not updated",
+				fmt.Sprintf("%s could not be asked to apply the change to authentication configuration %q (status %q). %s", cluster, name, s.Status, later))
+		}
+	}
+	return diags
 }
 
 func (r *authenticationConfigurationResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

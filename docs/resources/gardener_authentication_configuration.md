@@ -20,7 +20,10 @@ Group names come through exactly as the identity provider sends them: a Keycloak
   Each issuer's `url` must be `https` and unique within the configuration; several audiences for one issuer go in its `audiences` list.
 - `certificate_authority` takes the issuer's CA as PEM; the provider encodes it.
   It is not needed for certificates from a public CA.
-- Changes to an attached configuration are applied in place.
+- A change to a configuration is stored right away, but clusters that use it keep the previous version until they are reconciled, at the latest in their maintenance window.
+  Set `reconcile_on_update = true` to reconcile them after each update, which applies the change within a few minutes; Terraform doesn't wait for it.
+  This includes clusters that use the configuration but are managed outside this Terraform configuration.
+  With the default `false`, the update warns which clusters still have the previous version.
   Removing `authentication_configuration_name` from a cluster, or destroying the configuration after its clusters have moved elsewhere, detaches it.
 - The configuration can't be deleted while a cluster uses it.
   To move clusters to a new configuration and delete the old one in the same apply, set `lifecycle { create_before_destroy = true }`, so Terraform updates the clusters before deleting the configuration.
@@ -57,6 +60,10 @@ resource "cleura_gardener_authentication_configuration" "sso" {
       ]
     }
   }
+
+  # Apply changes to the clusters using this configuration right away, instead
+  # of at their next maintenance window.
+  reconcile_on_update = true
 
   # When clusters are moved to another configuration and this one is removed
   # in the same apply, update the clusters before deleting it.
@@ -104,6 +111,10 @@ terraform import cleura_gardener_authentication_configuration.sso corp-sso
 
 - `issuers` (Attributes Map) The identity providers, keyed by alias: 3 to 32 lowercase letters, digits and hyphens. The alias is part of the user and group names a cluster sees (`oidc:<alias>:`) and selects the issuer when fetching a kubeconfig. (see [below for nested schema](#nestedatt--issuers))
 - `name` (String) Name of the configuration: up to 32 lowercase letters, digits and hyphens, starting and ending with a letter or digit. Changing it creates a new configuration.
+
+### Optional
+
+- `reconcile_on_update` (Boolean) Whether a change to the configuration is applied to the clusters that use it right away. When `true`, each cluster using it, including clusters managed outside this Terraform configuration, is reconciled after an update; the change is live in a few minutes, but Terraform doesn't wait for it. When `false` (the default), clusters keep the previous version until their next reconcile, at the latest in their maintenance window, and the update warns which clusters those are. Changing only this attribute doesn't contact the clusters.
 
 ### Read-Only
 

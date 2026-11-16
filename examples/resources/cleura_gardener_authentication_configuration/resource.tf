@@ -23,6 +23,10 @@ resource "cleura_gardener_authentication_configuration" "sso" {
     }
   }
 
+  # Apply changes to the clusters using this configuration right away, instead
+  # of at their next maintenance window.
+  reconcile_on_update = true
+
   # When clusters are moved to another configuration and this one is removed
   # in the same apply, update the clusters before deleting it.
   lifecycle {

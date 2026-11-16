@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -39,6 +40,9 @@ type mockAuthConfigAPI struct {
 	configs map[string]api.GardenerIdentityProviderAuthenticationConfiguration
 	inUse   map[string]bool
 	bodies  []map[string]any // decoded request bodies of POST and PUT, in order
+	calls   []string         // "PUT <name>" and "RECONCILE <name>", in order
+	// reconciled is what the reconcile endpoint reports per cluster.
+	reconciled []api.GardenerIdentityProviderShootReconcileResult
 }
 
 func newMockAuthConfigAPI() *mockAuthConfigAPI {
@@ -110,7 +114,14 @@ func (m *mockAuthConfigAPI) handler() http.Handler {
 			apiError(w, 404, "not found")
 			return
 		}
+		m.calls = append(m.calls, "PUT "+r.PathValue("name"))
 		writeJSON(w, 202, m.store(r.PathValue("name"), body.Issuers))
+	})
+	mux.HandleFunc("POST "+root+"/{name}/shoots/reconcile", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.calls = append(m.calls, "RECONCILE "+r.PathValue("name"))
+		writeJSON(w, 202, append([]api.GardenerIdentityProviderShootReconcileResult{}, m.reconciled...))
 	})
 	mux.HandleFunc("DELETE "+root+"/{name}", func(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()
@@ -133,6 +144,18 @@ func (m *mockAuthConfigAPI) handler() http.Handler {
 		})
 	})
 	return mux
+}
+
+// callsAre checks the PUT and reconcile calls made so far, in order.
+func (m *mockAuthConfigAPI) callsAre(want ...string) resource.TestCheckFunc {
+	return func(*terraform.State) error {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if got := strings.Join(m.calls, ", "); got != strings.Join(want, ", ") {
+			return fmt.Errorf("calls: [%s]; want [%s]", got, strings.Join(want, ", "))
+		}
+		return nil
+	}
 }
 
 func (m *mockAuthConfigAPI) lastBody(t *testing.T) map[string]any {
@@ -249,6 +272,8 @@ func TestAuthenticationConfigurationLifecycle(t *testing.T) {
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectKnownValue(addr, zetaGroups.AtMapKey("expression"), knownvalue.StringExact("claims.roles")),
 				},
+				// reconcile_on_update defaults to false: the update touches no cluster.
+				Check: mock.callsAre("PUT corp-sso"),
 			},
 			{
 				// And back: the prefix is unknown until the API reports it.
@@ -398,4 +423,80 @@ func TestIssuerURLProblem(t *testing.T) {
 			t.Errorf("issuerURLProblem(%q) = %q, want %q", raw, got, want)
 		}
 	}
+}
+
+// TestReconcileShootsReportsEachCluster: clusters that could not be asked to
+// apply an update are named in a warning, never an error, because the
+// configuration itself was updated and another apply would have nothing to do.
+func TestReconcileShootsReportsEachCluster(t *testing.T) {
+	mock := newMockAuthConfigAPI()
+	mock.reconciled = []api.GardenerIdentityProviderShootReconcileResult{
+		{Name: "prod", OpenstackProjectId: "p1", OpenstackRegionTag: "Sto2", Status: api.Accepted},
+		{Name: "busy", OpenstackProjectId: "p1", OpenstackRegionTag: "Sto2", Status: api.SkippedOperationInProgress},
+		{Name: "broken", OpenstackProjectId: "p2", OpenstackRegionTag: "Fra1", Status: api.Failed},
+	}
+	r := &authenticationConfigurationResource{config: newTestConfig(t, mock.handler())}
+
+	diags := r.reconcileShoots(context.Background(), "corp-sso")
+	if diags.HasError() {
+		t.Fatalf("unexpected error: %v", diags)
+	}
+	var details []string
+	for _, d := range diags.Warnings() {
+		details = append(details, d.Detail())
+	}
+	all := strings.Join(details, "\n")
+	if len(details) != 2 || !strings.Contains(all, `Cluster "busy"`) || !strings.Contains(all, `Cluster "broken" (project p2, region Fra1)`) ||
+		strings.Contains(all, `"prod"`) || !strings.Contains(all, "maintenance window") {
+		t.Errorf("warnings = %q; want one for busy and one for broken, none for prod", details)
+	}
+
+	// A failed request is a warning too.
+	failing := &authenticationConfigurationResource{config: newTestConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiError(w, 500, "Internal Server Error")
+	}))}
+	diags = failing.reconcileShoots(context.Background(), "corp-sso")
+	if diags.HasError() || diags.WarningsCount() != 1 {
+		t.Errorf("failed request: diagnostics = %v; want exactly one warning", diags)
+	}
+}
+
+// TestAuthenticationConfigurationReconcileOnUpdate: with reconcile_on_update,
+// an update is followed by the reconcile that rolls it out to the clusters.
+// Create has no clusters to reconcile, and changing only the attribute
+// contacts nothing.
+func TestAuthenticationConfigurationReconcileOnUpdate(t *testing.T) {
+	mock := newMockAuthConfigAPI()
+	serveAuthConfigAPI(t, mock)
+	ca := testCertificatePEM(t)
+	const addr = "cleura_gardener_authentication_configuration.test"
+	withReconcile := func(on bool, zetaGroups string) string {
+		return strings.Replace(authConfigHCL(ca, zetaGroups), `name = "corp-sso"`,
+			fmt.Sprintf("name = \"corp-sso\"\n  reconcile_on_update = %t", on), 1)
+	}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: withReconcile(true, `claim = "groups"`),
+				Check:  mock.callsAre(),
+			},
+			{
+				Config: withReconcile(true, `expression = "claims.roles"`),
+				Check:  mock.callsAre("PUT corp-sso", "RECONCILE corp-sso"),
+			},
+			{
+				// Only the attribute changes: an update with no API call.
+				Config: withReconcile(false, `expression = "claims.roles"`),
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectResourceAction(addr, plancheck.ResourceActionUpdate),
+				}},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					mock.callsAre("PUT corp-sso", "RECONCILE corp-sso"),
+					resource.TestCheckResourceAttr(addr, "reconcile_on_update", "false"),
+				),
+			},
+		},
+	})
 }

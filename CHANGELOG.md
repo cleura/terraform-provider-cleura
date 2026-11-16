@@ -7,6 +7,7 @@
 - **OIDC sign-in for Gardener clusters.**
   - **`cleura_gardener_authentication_configuration` resource**: the OIDC issuers clusters accept sign-ins from, with audiences, claim mappings and validation rules.
     One configuration can be attached to any number of clusters.
+    With `reconcile_on_update = true`, a change is applied to the clusters that use it right away; otherwise they pick it up at their next reconcile, and the update warns which clusters those are.
   - **`authentication_configuration_name` on `cleura_gardener_shoot`**: attaches a configuration to a cluster.
     Setting, changing or removing it updates the cluster in place.
   - **`cleura_gardener_shoot_oidc_kubeconfig` data source**: a secret-free kubeconfig that signs in through one issuer and audience, using the kubelogin plugin.
