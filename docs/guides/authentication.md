@@ -23,7 +23,7 @@ topology:
 provider "cleura" {
   cloud      = "public"           # "public", "compliant", or a private cloud name
   region     = "Sto2"             # OpenStack region tag — case-sensitive
-  project_id = "your-project-id"  # default for Gardener resources; each can set its own
+  project_id = "your-project-id"  # default for Gardener clusters and volumes; each can set its own
 
   # username / token are taken from `cleura login` automatically.
   # Set them here — or via CLEURA_API_USERNAME / CLEURA_API_TOKEN — to override.
@@ -54,14 +54,15 @@ explicit configuration and environment variables always override it.
    `profile` attribute (it defaults to the CLI's current profile), or disable the
    tier entirely with `use_cli = false`.
 
-Only **credentials** come from the CLI. It can fill `username`, `token`, `cloud`,
-and (conditionally) `url` — it **never** fills `region` or `project_id`. Where
+Only **credentials and the endpoint** come from the CLI. It can fill `username`, `token`, `cloud`,
+and, when `cloud` isn't set, `url` — it **never** fills `region` or `project_id`. Where
 your infrastructure lives must be stated in the configuration or environment, so
 that a plan does not silently depend on an operator's CLI profile.
 
 When the provider falls back to the CLI it runs `cleura config get-credentials` as
-a subprocess with the `CLEURA_*` **credential** variables stripped from that
-subprocess's environment. The CLI tier therefore reflects the CLI's *stored login
+a subprocess with the provider's `CLEURA_*` variables (the credentials, `CLEURA_API_URL`,
+`CLEURA_CLOUD`, `CLEURA_REGION` and `CLEURA_PROJECT_ID`) stripped from that subprocess's
+environment. The CLI tier therefore reflects the CLI's *stored login
 state* only — an environment credential participates as its own (higher) tier, not
 by leaking into the CLI. `CLEURA_PROFILE` and `CLEURA_CONFIG` are **not** stripped:
 they steer which profile and config file the CLI reads.
@@ -177,13 +178,16 @@ provider emits, so you can match what you see.
 
 | Warning                                                                                                              | Cause                                                                                                                        | Fix                                                                                                                          |
 |----------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|
-| **Mixed credential sources**                                                                                         | `username` came from config/env but `token` came from a cleura CLI profile that belongs to a *different* user; the API authenticates the pair together. | Set **both** `username` and `token` explicitly (config or `CLEURA_API_*`), or set **neither** and let the CLI supply the whole pair. |
+| **Mixed credential sources**                                                                                         | One of `username` and `token` came from config/env and the other from a cleura CLI profile, which may belong to a *different* user; the API authenticates the pair together. | Set **both** `username` and `token` explicitly (config or `CLEURA_API_*`), or set **neither** and let the CLI supply the whole pair. |
 | **Cleura CLI credentials may not match the configured cloud** / **…may not match the API endpoint**                  | The configured `cloud` (or resolved `url`) differs from the cloud/endpoint the CLI token was minted against; the token may be invalid there. | `cleura login` to the matching profile/cloud, or set `username`/`token` (and `url` for private clouds) explicitly.          |
 | **Cleura CLI token may be expired**                                                                                  | The CLI token was stored more than 20 hours ago, and Cleura tokens are short-lived.                                          | Run `cleura login` (or `cleura login --profile <profile>`).                                                                 |
+| **Could not read credentials from the cleura CLI**                                                                   | The CLI is installed but `cleura config get-credentials` failed; the warning carries its error.                             | Fix the CLI error it shows (often: run `cleura login`), or set `username`/`token` explicitly.                               |
+| **cleura CLI profile ignored**                                                                                       | `profile` is set but `use_cli = false`, so the CLI tier is off and `profile` has no effect.                                 | Remove `profile`, or set `use_cli = true`.                                                                                  |
 | **The cleura CLI is too old for provider integration**                                                               | The installed CLI predates the `cleura config get-credentials` contract the provider relies on.                             | Upgrade the cleura CLI (v0.7.0 is current), or set `username`/`token` explicitly.                                           |
 
 If credentials are missing entirely you get hard errors instead — *Missing Cleura
-API username* / *token* / *cloud* / *region* — with guidance for each attribute.
+API username* / *token* / *cloud* / *region* — with guidance for each attribute, and
+*Missing Cleura API url* for a private cloud without `url`.
 When the cleura CLI is not installed at all, the CLI tier is skipped silently; run
 Terraform with `TF_LOG=DEBUG` to see the trace. To take the CLI out of the picture
 completely, set `use_cli = false`.

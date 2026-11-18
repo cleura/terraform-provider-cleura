@@ -14,6 +14,7 @@ This resource adds the Recovery service to it by ID, so the two providers work s
 
 - `retention_days` and `immutable` are changed in place, without switching the service off.
 - If the service is already on for the volume, creating this resource takes it over and applies the configured settings.
+  `immutable` defaults to `false`, so to keep an immutable service immutable, set `immutable = true`, or import the resource first so the plan shows its current settings.
 - Destroying the resource, or removing it from your configuration, switches the service off.
   Terraform waits until Cleura has finished stopping it, usually 10 to 20 seconds, so a `terraform destroy` that also deletes the volume works in one run.
   With immutable recovery points, Terraform doesn't wait: see below.
@@ -73,7 +74,7 @@ resource "cleura_openstack_volume_recovery_service" "data" {
 }
 ```
 
-To protect several volumes, use `for_each`:
+To protect several volumes created with `for_each`, use `for_each` here too:
 
 ```terraform
 resource "cleura_openstack_volume_recovery_service" "disks" {

@@ -8,7 +8,8 @@ description: |-
 # {{ .RenderedProviderName }} Provider
 
 A Terraform or OpenTofu provider for [Cleura Cloud](https://cleura.com/) — manage Cleura's managed
-services (managed Kubernetes, and OpenStack projects and users) as code, alongside the OpenStack provider that handles the
+services (managed Kubernetes and its OIDC sign-in, OpenStack projects and users, and the
+Recovery service for block volumes) as code, alongside the OpenStack provider that handles the
 underlying infrastructure. Works against both the Public and Compliant clouds.
 
 ~> **Warning:** This provider is in early (`0.x`) development. The Gardener cluster surface has
@@ -38,6 +39,8 @@ repository. Real-world reports directly shape what we build next.
 - `cleura_openstack_project`, `cleura_openstack_user` (data sources) — look up projects and
   users. The older `cleura_project` data source is deprecated in favour of
   `cleura_openstack_project`
+- `cleura_openstack_volume_recovery_service` — Cleura's Recovery service (disaster recovery) for
+  a block volume, such as one created with the OpenStack provider
 
 ## Example Usage
 
@@ -47,7 +50,8 @@ repository. Real-world reports directly shape what we build next.
 
 The simplest setup is the **cleura CLI**: run `cleura login` once — it handles the password and
 two-factor authentication — and the provider uses those credentials automatically, so the provider
-block only needs `cloud`, `region`, and — as the default for Gardener resources — `project_id`.
+block only needs `cloud`, `region`, and — as the default project for resources that work in
+one, such as Gardener clusters — `project_id`.
 
 Credentials resolve in precedence order; the CLI is the automatic fallback, so explicit
 configuration and environment variables always override it:
@@ -60,13 +64,13 @@ configuration and environment variables always override it:
    a specific CLI profile with the `profile` attribute, or disable the fallback with
    `use_cli = false`.
 
-The CLI supplies the `username`, `token`, `cloud`, and API `url`; only `region` and `project_id`
+The CLI supplies the `username`, `token`, `cloud`, and, when `cloud` isn't set, the API `url`; only `region` and `project_id`
 are never taken from it — where your infrastructure lives must be stated in the configuration.
 Cleura tokens are short-lived — if a plan fails with an authentication error, run `cleura login`
 again.
 
 ~> **Warning:** An API token grants access to your Cleura account — treat it like a password and
-never commit it. The `token` attribute is stored as sensitive, but `cleura login` and the
-environment variables keep it out of your configuration and state entirely.
+never commit it. The `token` attribute is marked sensitive, so Terraform hides it in its output,
+but `cleura login` and the environment variables keep it out of your configuration entirely.
 
 {{ .SchemaMarkdown | trimspace }}

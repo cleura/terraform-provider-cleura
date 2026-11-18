@@ -23,7 +23,7 @@ does not need `project_id` on the provider.
 -> The older `cleura_project` data source also resolves a project name to an ID, scoped by
 region. This data source supersedes it with lookup by ID and the full project attributes.
 
--> **Domains:** the domain this resource lives in is derived from the provider's `region`; see
+-> **Domains:** the domain this data source looks in is derived from the provider's `region`; see
 [OpenStack projects, users and domains](../guides/openstack-identity.md) for how that works and
 when to set `domain_id`.
 

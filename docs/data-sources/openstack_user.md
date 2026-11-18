@@ -18,7 +18,7 @@ provider's `region`, or `domain_id` when set. A `name` lookup is exact.
 OpenStack users are distinct from Cleura account users; this data source does not need
 `project_id` on the provider.
 
--> **Domains:** the domain this resource lives in is derived from the provider's `region`; see
+-> **Domains:** the domain this data source looks in is derived from the provider's `region`; see
 [OpenStack projects, users and domains](../guides/openstack-identity.md) for how that works and
 when to set `domain_id`.
 

@@ -8,10 +8,11 @@ description: |-
 
 # OpenStack projects, users and domains
 
-The `cleura_openstack_*` resources and data sources manage OpenStack (Keystone) identity
-objects in your Cleura account: **projects**, **users**, and a user's **roles on a project**.
-They are account-level objects, so the provider needs only credentials and a `region`;
-`project_id` on the provider is not required.
+The OpenStack identity resources and data sources (`cleura_openstack_project`,
+`cleura_openstack_user` and `cleura_openstack_role_assignment`) manage OpenStack (Keystone)
+identity objects in your Cleura account: **projects**, **users**, and a user's **roles on a
+project**. They are account-level objects, so the provider needs only credentials and a
+`region`; `project_id` on the provider is not required.
 
 ```terraform
 provider "cleura" {
@@ -39,14 +40,16 @@ resource "cleura_openstack_role_assignment" "ci_sandbox" {
 ## Domains: what they are and how the provider picks one
 
 In OpenStack every project and user lives in a **domain**. A Cleura account has **one domain
-per region**: one for `Sto2`, one for `Kna1`, one for `Fra1`, and so on. All of them carry the
-same display name (for example `CCP_Domain_44931`), so only the domain **ID** tells them apart.
+per identity authority** (Keystone), and each authority serves one or more regions, such as
+`Sto2`, `Kna1` or `Fra1`. All of the domains carry the same display name (for example `CCP_Domain_44931`), so only the domain **ID** tells them apart.
 Every OpenStack identity call in the Cleura API is addressed to a domain ID.
 
 You normally never see this. **The provider derives the domain from the provider's `region`**:
 
-1. It lists the account's domains once per Terraform run and picks the domain whose area
-   serves the configured `region` (the region tag is matched case-insensitively).
+1. It lists the account's domains and identity authorities once per provider configuration,
+   and picks the domain whose authority serves the configured `region` (the region tag is
+   matched case-insensitively). Authorities the account hasn't provisioned, and inactive
+   regions, are ignored.
 2. If the account has exactly one domain, that domain is used regardless of region.
 3. The chosen domain is recorded in the resource's computed `domain_id` attribute, so it is
    visible in state and in `terraform show`.
@@ -57,7 +60,7 @@ cannot move between domains, `domain_id` **forces replacement** when it changes.
 
 ### When to set `domain_id` yourself
 
-Every `cleura_openstack_*` resource and data source has an optional `domain_id`. Set it only
+Every OpenStack identity resource and data source has an optional `domain_id`. Set it only
 when:
 
 - the provider reports that **no domain** or **more than one domain** serves the region. The
@@ -91,8 +94,9 @@ and recreating it.
 ## Visibility
 
 Only projects the provider's API user can access are listed, so a project created by another
-account user is not visible; the provider keeps the last known state and warns instead of
-recreating it.
+account user is not visible. For a managed `cleura_openstack_project` that still exists, the
+provider keeps the last known state and warns instead of recreating it; the
+`cleura_openstack_project` data source reports such a project as not found.
 
 ## Where to go next
 

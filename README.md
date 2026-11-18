@@ -3,7 +3,7 @@
 This is a Terraform/OpenTofu provider for [Cleura Cloud](https://cleura.com/).
 It allows you to
 
-- treat Cleura's managed services (Gardener, OpenStack projects and users) as code, and
+- treat Cleura's managed services (Gardener clusters and their OIDC sign-in, OpenStack projects and users, and the Recovery service for block volumes) as code, and
 - handle the underlying infrastructure via a suitable OpenStack provider.
 
 The Terraform Provider is published on the [Terraform Registry](https://registry.terraform.io/providers/cleura/cleura), and works against both Cleura Public and Compliant cloud.
@@ -31,8 +31,9 @@ The following is a list of what is **currently supported:**
 - `cleura_openstack_role_assignment:` a user's roles on a project (see the [OpenStack projects, users and domains](docs/guides/openstack-identity.md) guide).
 - `cleura_openstack_project`, `cleura_openstack_user:` (data sources) look up projects and users;
   the older `cleura_project` data source is deprecated in favor of `cleura_openstack_project`.
+- `cleura_openstack_volume_recovery_service:` Cleura's Recovery service (disaster recovery) for a block volume, such as one created with the OpenStack provider.
 
-The provider's data models and scaffolding are generated from the Cleura OpenAPI spec using the [Terraform Provider Code Generation](https://github.com/hashicorp/terraform-plugin-codegen-openapi) tools (see [Generate](#generate)).
+The provider's data models and scaffolding are generated from the Cleura OpenAPI spec using the [Terraform Provider Code Generation](https://github.com/hashicorp/terraform-plugin-codegen-openapi) tools (see [Generate data models](#generate-data-models)).
 The API client is not generated here; the provider consumes the shared [`cleura-client-go`](https://github.com/cleura/cleura-client-go) module.
 
 ## Usage
@@ -98,7 +99,7 @@ The full schema for every resource and data source, including optional worker la
 
 The simplest setup is via the **cleura CLI.**
 More specifically, run `cleura login` once, and the provider will use those credentials automatically.
-For the `provider` block, you need only the values for `cloud`, `region`, and `project_id` (the default for Gardener resources).
+For the `provider` block, you need only the values for `cloud`, `region`, and `project_id` (the default project for resources that work in one, such as Gardener clusters).
 You don't have to manage any tokens in the configuration or any environment variables.
 
 Credentials resolve in precedence order: the first tier that provides a value wins, per value.
@@ -116,20 +117,20 @@ The Cleura CLI is the automatic fallback, so explicit configuration and environm
    Pin a specific CLI profile with the `profile` attribute, or disable the fallback entirely with `use_cli = false`.
    Cleura tokens are short-lived: if a plan fails with an authentication error, re-run `cleura login`.
 
-Only **credentials** come from the `cleura` CLI.
+Only **credentials and the endpoint** come from the `cleura` CLI: `username`, `token`, `cloud`, and, when `cloud` isn't set, the API URL.
 Values for `region` and `project_id` are never read from it.
 The value for `region` comes from the provider configuration (or `CLEURA_REGION`).
 The value for `project_id` comes from the resource, the provider, or the `CLEURA_PROJECT_ID`; where infrastructure lives should be independent of the operator's CLI profile.
 
 Credentials are read once, when the provider is configured.
 A token expiring during a long apply fails at the affected resource call (try again after `cleura login`).
-The CLI is executed with the `CLEURA_*` credential variables stripped from its environment.
+The CLI is executed with the provider's `CLEURA_*` variables (credentials, `CLEURA_API_URL`, `CLEURA_CLOUD`, `CLEURA_REGION` and `CLEURA_PROJECT_ID`) stripped from its environment; `CLEURA_PROFILE` and `CLEURA_CONFIG` are kept.
 That means the CLI tier reflects only the CLI's stored state; environment credentials participate as their own (higher) tier.
 
 > **Warning**
 >
 > The token grants API access to your Cleura account, so treat it like a password and never commit it to version control.
-> `token` is marked sensitive in state, but environment variables are safer.
+> `token` is marked sensitive, so Terraform hides it in its output, but the CLI or environment variables keep it out of your configuration.
 
 ## Build
 

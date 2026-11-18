@@ -8,7 +8,7 @@ description: |-
 
 # cleura_project (Data Source)
 
-!> **Deprecated.** Use [`cleura_openstack_project`](openstack_project) instead. It performs
+!> **Deprecated.** Use [`cleura_openstack_project`](openstack_project.md) instead. It performs
 the same name lookup, additionally accepts an `id`, and returns the project's `domain_id`,
 `description` and `enabled` state. Migrating is a rename — the `name` argument and the `id`
 attribute are unchanged:

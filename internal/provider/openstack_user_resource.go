@@ -334,7 +334,8 @@ func (r *openstackUserResource) Update(ctx context.Context, req resource.UpdateR
 	// PATCH merges: send only what changed. A removed description is cleared
 	// by sending "" (an omitted field would be left untouched). A stored
 	// password is sent when it changed; a write-only one only when its version
-	// marker changed. Switching between the two re-sends nothing on its own.
+	// marker changed. Switching to password therefore sends it (null in state),
+	// and switching to password_wo sends it when its version is new.
 	body := api.OpenStackIdentityEditUserRequest{}
 	changed := false
 	if !plan.Name.Equal(state.Name) {
