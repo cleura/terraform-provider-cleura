@@ -37,8 +37,9 @@ Set the password with **exactly one** of these:
   next apply. Use it with tools that don't support write-only arguments, such as Crossplane,
   or Terraform and OpenTofu before 1.11.
 
-Switching between the two doesn't change the user's password by itself, and edits to other
-attributes never touch it.
+Switching to `password` sends it on the next apply. Switching to `password_wo` sends it only
+when `password_wo_version` is set for the first time or changes. Edits to other attributes
+never touch the password.
 
 -> **Upgrading from v0.3.0 or v0.3.1:** `password` used to be the write-only password. Rename it to
 `password_wo` to keep the password out of state. A configuration that still sets `password`
@@ -106,9 +107,10 @@ output "openstack_user_id" {
 ```shell
 # A user is imported by its OpenStack user ID (32 hex characters). Find it with
 # `cleura openstack user list` or the cleura_openstack_user data source. The
-# password cannot be read back: with password_wo it is only sent when
-# password_wo_version changes; with password, the first apply after the import
-# sends it and stores it in state.
+# password cannot be read back, so the first apply after the import sends it:
+# with password, it is stored in state; with password_wo, it is sent because
+# password_wo_version goes from unset to its value, and later only when that
+# version changes.
 terraform import cleura_openstack_user.ci 6f1c0e6f2b1d4c0aa1b2c3d4e5f60718
 ```
 

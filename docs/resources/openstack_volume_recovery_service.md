@@ -73,7 +73,7 @@ resource "cleura_openstack_volume_recovery_service" "data" {
 }
 ```
 
-To protect several volumes, use `for_each`:
+To protect several volumes created with `for_each`, use `for_each` here too:
 
 ```terraform
 resource "cleura_openstack_volume_recovery_service" "disks" {

@@ -281,14 +281,15 @@ shell) live in the CLI repository under
 [`examples/ci/`](https://github.com/cleura/cleura-cli/tree/main/examples/ci).
 
 ~> **Treat an API token like a password** — it grants access to your Cleura
-account. Never commit it. The `token` attribute is marked sensitive, and
-`cleura login` and the environment variables keep it out of your configuration
-and state.
+account. Never commit it. The `token` attribute is marked sensitive, so Terraform
+hides it in its output, and `cleura login` and the environment variables keep it
+out of your configuration.
 
 ## 7. Using the OpenStack provider alongside this one
 
-This provider manages Cleura's **managed services** — Gardener Kubernetes — and
-OpenStack identity: projects, users, and their roles.
+This provider manages Cleura's **managed services** — Gardener Kubernetes and its
+OIDC sign-in — plus OpenStack identity (projects, users, and their roles) and the
+Recovery service for block volumes.
 The infrastructure underneath those services — networks, routers, security
 groups, floating IP pools, images, volumes, and standalone compute — lives in
 OpenStack and is managed with the
@@ -326,10 +327,11 @@ provider "openstack" {
 Rough division of labor:
 
 - **`cleura` provider** — Gardener shoots, their worker groups, and kubeconfigs
-  (the managed Kubernetes control plane and node pools), plus OpenStack projects,
-  users, and role assignments.
-- **OpenStack provider** — the tenant's networking, storage, images, keypairs,
-  and any VMs you run outside Gardener.
+  (the managed Kubernetes control plane and node pools), OIDC sign-in for them,
+  OpenStack projects, users, and role assignments, and the Recovery service on
+  volumes.
+- **OpenStack provider** — the tenant's networking, storage (including the volumes
+  themselves), images, keypairs, and any VMs you run outside Gardener.
 
 The two share the same OpenStack project: the `project_id` you set on the
 `cleura` provider is the same tenant the OpenStack provider authenticates

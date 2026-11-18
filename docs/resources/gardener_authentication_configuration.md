@@ -9,24 +9,26 @@ description: |-
 # cleura_gardener_authentication_configuration (Resource)
 
 Defines the **OIDC issuers** that Gardener clusters accept sign-ins from: an identity provider such as Keycloak, Entra ID or Dex, the audiences (client IDs) it issues tokens for, and how token claims map to Kubernetes user names and groups.
-One configuration can be attached to any number of clusters in the region with [`cleura_gardener_shoot.authentication_configuration_name`](gardener_shoot.md); the same configuration is visible to every project in the account.
+One configuration belongs to the provider's `cloud` and can be attached to any number of clusters, in any project and region of that cloud, with [`cleura_gardener_shoot.authentication_configuration_name`](gardener_shoot.md); the same configuration is visible to every project in the account.
 
 Users then sign in with a kubeconfig from [`cleura_gardener_shoot_oidc_kubeconfig`](../data-sources/gardener_shoot_oidc_kubeconfig.md), which needs the [kubelogin](https://github.com/int128/kubelogin) plugin (`kubectl oidc-login`).
-The cluster sees them as `oidc:<alias>:<username>` with groups `oidc:<alias>:<group>`, where `<alias>` is the key in `issuers`; role bindings refer to those names.
+The cluster sees them as `oidc:<alias>:<username>`, where `<alias>` is the key in `issuers`; role bindings refer to those names.
+Groups mapped with `groups.claim` appear as `oidc:<alias>:<group>`; groups mapped with `groups.expression` come through without a prefix.
 A new cluster has no role bindings, so the first binding is created with an admin kubeconfig.
 Group names come through exactly as the identity provider sends them: a Keycloak group mapper with "Full group path" on sends `/k8s-admin`, so the binding subject is `oidc:keycloak:/k8s-admin`.
 
-- `issuers` is keyed by an alias of your choice (3–32 characters, lowercase letters, digits and `-`).
-  Each issuer's `url` must be `https` and unique within the configuration; several audiences for one issuer go in its `audiences` list.
+- `issuers` is keyed by an alias of your choice (3–32 characters, lowercase letters, digits and `-`, starting and ending with a letter or digit).
+  Each issuer's `url` must be `https`, without a username, password, query or fragment, and unique within the configuration; several audiences for one issuer go in its `audiences` list.
 - `certificate_authority` takes the issuer's CA as PEM; the provider encodes it.
   It is not needed for certificates from a public CA.
 - A change to a configuration is stored right away, but clusters that use it keep the previous version until they are reconciled, at the latest in their maintenance window.
   Set `reconcile_on_update = true` to reconcile them after each update, which applies the change within a few minutes; Terraform doesn't wait for it.
   This includes clusters that use the configuration but are managed outside this Terraform configuration.
   With the default `false`, the update warns which clusters still have the previous version.
-  Removing `authentication_configuration_name` from a cluster, or destroying the configuration after its clusters have moved elsewhere, detaches it.
+  Removing `authentication_configuration_name` from a cluster detaches the configuration from it.
 - The configuration can't be deleted while a cluster uses it.
   To move clusters to a new configuration and delete the old one in the same apply, set `lifecycle { create_before_destroy = true }`, so Terraform updates the clusters before deleting the configuration.
+  Where `lifecycle` isn't available, such as under Crossplane, move the clusters in one apply and delete the old configuration in the next.
 
 ### Prerequisites
 

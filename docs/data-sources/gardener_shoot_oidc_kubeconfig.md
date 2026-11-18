@@ -18,6 +18,7 @@ It only works once the cluster has finished applying its configuration; a kubeco
 
 Set `authentication_configuration_name` to the configuration resource when the same apply changes that configuration, for example adds the audience.
 Terraform then reads the kubeconfig after the change rather than during planning.
+The cluster itself only picks up the change when it is reconciled, so set `reconcile_on_update = true` on the configuration, or the new audience is refused at sign-in until the cluster's next reconcile.
 
 ## Example Usage
 
@@ -25,6 +26,9 @@ Terraform then reads the kubeconfig after the change rather than during planning
 # A kubeconfig that signs in to the cluster through Keycloak, with "kube-api"
 # as the OIDC client ID. It holds no secret: kubectl opens the browser through
 # the kubelogin plugin (kubectl oidc-login) on first use.
+#
+# cleura_gardener_shoot.example and cleura_gardener_authentication_configuration.sso
+# are the clusters and configuration from those resources' examples.
 data "cleura_gardener_shoot_oidc_kubeconfig" "sso" {
   project_id   = cleura_gardener_shoot.example.project_id
   shoot_name   = cleura_gardener_shoot.example.name

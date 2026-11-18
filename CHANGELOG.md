@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+A documentation-only release; the provider behaves exactly as in v0.4.0.
+
+### Fixed
+
+- **Documentation corrected after a review against the code and live tests.**
+  - `cleura_openstack_volume_recovery_service` is listed with the other resources, and the provider's `project_id` is documented as its default too.
+  - The OpenStack identity guide describes how the domain is found since v0.4.0 (identity authorities), and no longer claims that every `cleura_openstack_*` resource has `domain_id`.
+  - `cleura_openstack_user`: switching between `password` and `password_wo` can send the password; the page said it didn't.
+  - `cleura_gardener_authentication_configuration`: a configuration belongs to the cloud, not a region, and groups mapped with `groups.expression` have no `oidc:<alias>:` prefix.
+  - `cleura_gardener_shoot_kubeconfig`: the renewal warning is named correctly, and an outdated attribute list is removed.
+  - Smaller corrections to the authentication guide, the README and the shoot page.
+
 ## v0.4.0
 
 This release adds OIDC sign-in for Gardener clusters and Cleura's Recovery service for block volumes.

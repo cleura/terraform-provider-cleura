@@ -15,7 +15,7 @@ The project a cluster was created in is recorded in state, so pointing the provi
 
 Credentials (username, token), the target `cloud`, and the API `url` are resolved automatically from the `cleura` CLI after `cleura login`, or from explicit provider config / `CLEURA_*` environment variables; `region` and `project_id` are never taken from the CLI. See the [provider authentication guide](../index.md#authentication) for the full precedence rules (installing the latest `cleura` CLI is recommended).
 
-~> **Creating a shoot prepares the project for Gardener.** A Cleura project must be bootstrapped before it can hold a shoot, so creating one does that first — no separate step is needed for a project created by [`cleura_openstack_project`](./openstack_project.md) in the same configuration. Preparing a project provisions supporting resources in it and is **permanent**: destroying the shoot does not reverse it. The step runs on every create and has no effect on a project that is already prepared.
+~> **Creating a shoot prepares the project for Gardener.** A Cleura project must be bootstrapped before it can hold a shoot, so creating one does that first — no separate step is needed for a project created by [`cleura_openstack_project`](./openstack_project.md) in the same configuration. Preparing a project provisions supporting resources in it and is **permanent**: destroying the shoot does not reverse it. The step runs on every create; on a project that is already prepared, repeating it has been seen to change nothing.
 
 ~> **Reconciliation takes time.** Creating a shoot, and most updates (worker-group changes, version upgrades, HA changes), trigger a Gardener reconcile that runs for **several minutes**. Terraform blocks until the cluster reports ready, so applies against this resource are expected to be slow. If a create times out or fails mid-reconcile, the cluster is still tracked in state (tainted) so a later `terraform destroy` or re-apply can clean it up rather than orphaning it.
 
@@ -113,7 +113,7 @@ resource "cleura_gardener_shoot" "example" {
 ### Required
 
 - `kubernetes_version` (String) Required. Target Kubernetes version (numeric, dot-separated), e.g. "1.35.6". Applied IN PLACE on change (sent in the edit request) — NOT a replacement. Downgrades are rejected by the API.
-- `name` (String) Required. Cluster (shoot) name: 1–15 characters of letters, digits, and hyphens. Also the import ID. Changing it forces the cluster to be recreated.
+- `name` (String) Required. Cluster (shoot) name: 1–15 characters of letters, digits, and hyphens. Also the import ID, alone or as `<project_id>/<name>`. Changing it forces the cluster to be recreated.
 - `shoot_provider` (Attributes) Required. OpenStack provider configuration: infrastructure, load-balancer provider, and worker groups. Its infrastructure and load-balancer settings are fixed at creation (see nested attributes); only `workers` are edited in place. (see [below for nested schema](#nestedatt--shoot_provider))
 
 ### Optional
@@ -283,15 +283,16 @@ Optional:
 
 ### Immutable attributes (force destroy + recreate)
 
-The Cleura edit API cannot change the following after creation. Changing any of them in your configuration forces Terraform to **destroy and recreate the entire cluster** — every worker node, workload, and its data is lost, and the API endpoint changes. Terraform emits a plan-time warning for each. Make sure the downtime is acceptable before applying.
+The Cleura edit API cannot change the following after creation. Changing any of them in your configuration forces Terraform to **destroy and recreate the entire cluster** — every worker node, workload, and its data is lost, and the API endpoint changes. Terraform emits a plan-time warning for each, except `project_id`. Make sure the downtime is acceptable before applying.
 
 - **`name`** — the cluster name is fixed. It is also the resource's identity (see [Import](#import)) and must be 1–15 characters of letters, digits, or hyphens.
+- **`project_id`** — a cluster can't move between projects (see above).
 - **`networking.type`** — the CNI plugin (`calico` or `cilium`) is set only at creation. Switching between them (in either direction) recreates the cluster.
 - **`enable_ha_control_plane`, only when going `true` → `false`.** Enabling control-plane high availability (`false` → `true`) is applied in place, but **disabling** it once enabled cannot be done in place and forces a recreate. (Re-sending an unchanged `true` is intentionally suppressed to avoid an API 409.)
 - **`shoot_provider.load_balancer_provider`** — fixed at creation.
 - **`shoot_provider.infrastructure_config` fields** — `floating_pool_name` is always immutable. `network_id`, `router_id`, and `workers_network_cidr` are `Optional + Computed`: if you omit them, Cleura creates and manages the network/router/CIDR and Terraform pins the assigned values (so omitting them never causes a perpetual replace). If you instead set one explicitly to attach to an existing network, later changing that explicit value forces a recreate.
 
-Worker groups, by contrast, are reconciled **in place**: they are matched by their (immutable) `name`, so groups added, removed, or edited in `shoot_provider.workers` are created, deleted, or updated on the running cluster without recreating it. Keep each worker group's `name` stable — renaming a group reads as deleting the old one and adding a new one. Adding or removing groups emits a warning about possible temporary downtime or over-provisioning.
+Worker groups, by contrast, are reconciled **in place**: they are matched by their (immutable) `name`, so groups added, removed, or edited in `shoot_provider.workers` are created, deleted, or updated on the running cluster without recreating it. Keep each worker group's `name` stable — renaming a group reads as deleting the old one and adding a new one. A change in the number of worker groups emits a warning about possible temporary downtime or over-provisioning; renaming a group keeps the number the same, so it gives no warning.
 
 ### Worker machine image
 

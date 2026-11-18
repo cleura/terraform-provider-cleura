@@ -13,9 +13,9 @@ account. Projects are the unit that OpenStack resources, quotas, and user access
 to: the `project_id` you give the Cleura provider, the OpenStack provider, or a Gardener
 cluster refers to one of these.
 
-Projects live in an **OpenStack domain**. A Cleura account normally has one domain per
-region group, so by default the provider picks the domain that serves its configured
-`region`. When that is ambiguous, set `domain_id` explicitly (list the candidates with
+Projects live in an **OpenStack domain**. A Cleura account has one domain per identity
+authority, each serving one or more regions, so by default the provider picks the domain
+that serves its configured `region`. When that is ambiguous, set `domain_id` explicitly (list the candidates with
 `cleura openstack domain list`).
 
 `name`, `description`, and `enabled` are updated **in place**. `domain_id` cannot change

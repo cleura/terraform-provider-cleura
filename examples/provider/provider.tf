@@ -15,8 +15,9 @@ terraform {
 # environment variables; both take precedence over the CLI.
 #
 # region and project_id are never taken from the CLI: set them here (or via
-# CLEURA_REGION / CLEURA_PROJECT_ID). project_id is the default for the Gardener
-# resources, which can also set their own.
+# CLEURA_REGION / CLEURA_PROJECT_ID). project_id is the default project for the
+# Gardener resources and cleura_openstack_volume_recovery_service, which can
+# also set their own.
 provider "cleura" {
   cloud      = "public" # "public", "compliant", or a private cloud name
   region     = "Sto2"

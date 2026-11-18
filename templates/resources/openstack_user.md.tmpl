@@ -37,8 +37,9 @@ Set the password with **exactly one** of these:
   next apply. Use it with tools that don't support write-only arguments, such as Crossplane,
   or Terraform and OpenTofu before 1.11.
 
-Switching between the two doesn't change the user's password by itself, and edits to other
-attributes never touch it.
+Switching to `password` sends it on the next apply. Switching to `password_wo` sends it only
+when `password_wo_version` is set for the first time or changes. Edits to other attributes
+never touch the password.
 
 -> **Upgrading from v0.3.0 or v0.3.1:** `password` used to be the write-only password. Rename it to
 `password_wo` to keep the password out of state. A configuration that still sets `password`
