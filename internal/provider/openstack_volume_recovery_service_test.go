@@ -206,15 +206,6 @@ func serveVolumeAPI(t *testing.T, m *mockVolumeAPI) {
 	t.Setenv("CLEURA_API_TOKEN", "token")
 }
 
-// withFastRecoveryPolling makes Delete's wait poll every millisecond and give
-// up after timeout.
-func withFastRecoveryPolling(t *testing.T, timeout time.Duration) {
-	t.Helper()
-	interval, stop := recoveryServicePollInterval, recoveryServiceStopTimeout
-	recoveryServicePollInterval, recoveryServiceStopTimeout = time.Millisecond, timeout
-	t.Cleanup(func() { recoveryServicePollInterval, recoveryServiceStopTimeout = interval, stop })
-}
-
 func recoveryConfig(volumeID, attrs string) string {
 	return fmt.Sprintf(`
 provider "cleura" {
@@ -256,7 +247,6 @@ func onlyRecoverService(body map[string]json.RawMessage, want string) error {
 }
 
 func TestVolumeRecoveryServiceLifecycle(t *testing.T) {
-	withFastRecoveryPolling(t, 5*time.Second)
 	mock := newMockVolumeAPI(3)
 	serveVolumeAPI(t, mock)
 	var firstRecord int
@@ -264,12 +254,13 @@ func TestVolumeRecoveryServiceLifecycle(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		CheckDestroy: func(*terraform.State) error {
-			// Destroy switched the service off and waited until its record was gone.
+			// Destroy switched the service off and returned without waiting for it
+			// to stop.
 			if err := onlyRecoverService(mock.lastPatch(), "null"); err != nil {
 				return err
 			}
-			if s := mock.service(); s != nil {
-				return fmt.Errorf("destroy returned while the Recovery service was still %s", s.Status)
+			if s := mock.service(); s == nil || s.Status != recoveryStopping {
+				return fmt.Errorf("Recovery service after destroy is %v, want it still stopping", s)
 			}
 			return nil
 		},
@@ -326,7 +317,6 @@ func TestVolumeRecoveryServiceLifecycle(t *testing.T) {
 }
 
 func TestVolumeRecoveryServiceAdoptsAndTargets(t *testing.T) {
-	withFastRecoveryPolling(t, 5*time.Second)
 	mock := newMockVolumeAPI(0)
 	// Switched on before Terraform managed it, e.g. by the customer's own tooling.
 	mock.setService(&api.OpenStackBlockStorageDisasterRecoveryService{
@@ -359,7 +349,6 @@ func TestVolumeRecoveryServiceAdoptsAndTargets(t *testing.T) {
 }
 
 func TestVolumeRecoveryServiceDrift(t *testing.T) {
-	withFastRecoveryPolling(t, 5*time.Second)
 	mock := newMockVolumeAPI(0)
 	serveVolumeAPI(t, mock)
 	config := recoveryConfig(recoveryTestVolume, "  retention_days = 10")
@@ -425,7 +414,7 @@ func TestVolumeRecoveryServicePlanValidation(t *testing.T) {
 
 // deleteWithState calls Delete directly, so the test controls what the API
 // reports at that moment rather than what a refresh just before it saw.
-func deleteWithState(t *testing.T, mock *mockVolumeAPI, immutable bool) fwresource.DeleteResponse {
+func deleteWithState(t *testing.T, mock *mockVolumeAPI) fwresource.DeleteResponse {
 	t.Helper()
 	cfg := newTestConfig(t, mock.handler())
 	cfg.Region, cfg.ProjectID = "Kna1", recoveryTestProject
@@ -441,7 +430,7 @@ func deleteWithState(t *testing.T, mock *mockVolumeAPI, immutable bool) fwresour
 		Region:        types.StringValue("Kna1"),
 		ProjectID:     types.StringValue(recoveryTestProject),
 		RetentionDays: types.Int64Value(10),
-		Immutable:     types.BoolValue(immutable),
+		Immutable:     types.BoolValue(false),
 		StartedAt:     types.StringValue("2026-10-06T13:55:07Z"),
 	}); diags.HasError() {
 		t.Fatal(diags)
@@ -451,21 +440,60 @@ func deleteWithState(t *testing.T, mock *mockVolumeAPI, immutable bool) fwresour
 	return resp
 }
 
-func TestVolumeRecoveryServiceDeleteWhileStopping(t *testing.T) {
-	withFastRecoveryPolling(t, 5*time.Second)
-	mock := newMockVolumeAPI(0)
-	// Switched off outside Terraform and still stopping when destroy runs.
-	mock.setService(&api.OpenStackBlockStorageDisasterRecoveryService{Id: 9, Status: recoveryStopping, RetentionDays: 10}, 3)
-
-	resp := deleteWithState(t, mock, false)
+// stoppingWarning returns the detail of Delete's "stopping" warning, or "".
+func stoppingWarning(t *testing.T, resp fwresource.DeleteResponse) string {
+	t.Helper()
 	if resp.Diagnostics.HasError() {
 		t.Fatal(resp.Diagnostics)
 	}
+	for _, d := range resp.Diagnostics.Warnings() {
+		if d.Summary() == "Recovery service is stopping" {
+			return d.Detail()
+		}
+	}
+	return ""
+}
+
+func TestVolumeRecoveryServiceDeleteSwitchesOff(t *testing.T) {
+	mock := newMockVolumeAPI(1 << 30) // never finishes stopping, like a volume with recovery points
+	mock.setService(&api.OpenStackBlockStorageDisasterRecoveryService{Id: 9, Status: recoveryActive, RetentionDays: 30}, 0)
+
+	warning := stoppingWarning(t, deleteWithState(t, mock))
+	if n := mock.patchCount(); n != 1 {
+		t.Fatalf("sent %d PATCH requests, want 1", n)
+	}
+	if err := onlyRecoverService(mock.lastPatch(), "null"); err != nil {
+		t.Error(err)
+	}
+	for _, want := range []string{recoveryTestVolume, "30 days", "can't be deleted"} {
+		if !strings.Contains(warning, want) {
+			t.Errorf("warning %q does not mention %q", warning, want)
+		}
+	}
+}
+
+func TestVolumeRecoveryServiceDeleteWhileStopping(t *testing.T) {
+	mock := newMockVolumeAPI(0)
+	// Switched off outside Terraform and still stopping when destroy runs.
+	mock.setService(&api.OpenStackBlockStorageDisasterRecoveryService{Id: 9, Status: recoveryStopping, RetentionDays: 10}, 1<<30)
+
+	warning := stoppingWarning(t, deleteWithState(t, mock))
 	if n := mock.patchCount(); n != 0 {
 		t.Errorf("sent %d PATCH requests for a service that was already stopping, want none", n)
 	}
-	if s := mock.service(); s != nil {
-		t.Errorf("Delete returned while the Recovery service was still %s", s.Status)
+	if !strings.Contains(warning, "10 days") {
+		t.Errorf("warning %q does not mention the 10-day retention", warning)
+	}
+}
+
+func TestVolumeRecoveryServiceDeleteAlreadyOff(t *testing.T) {
+	mock := newMockVolumeAPI(0)
+
+	if warning := stoppingWarning(t, deleteWithState(t, mock)); warning != "" {
+		t.Errorf("warned %q for a service that is already off", warning)
+	}
+	if n := mock.patchCount(); n != 0 {
+		t.Errorf("sent %d PATCH requests for a service that is already off, want none", n)
 	}
 }
 
@@ -473,29 +501,12 @@ func TestVolumeRecoveryServiceDeleteVolumeGone(t *testing.T) {
 	mock := newMockVolumeAPI(0)
 	mock.deleteVolume()
 
-	resp := deleteWithState(t, mock, false)
+	resp := deleteWithState(t, mock)
 	if resp.Diagnostics.HasError() {
 		t.Fatal(resp.Diagnostics)
 	}
 	if n := mock.patchCount(); n != 0 {
 		t.Errorf("sent %d PATCH requests for a volume that is gone, want none", n)
-	}
-}
-
-func TestVolumeRecoveryServiceStopTimeout(t *testing.T) {
-	withFastRecoveryPolling(t, 30*time.Millisecond)
-	mock := newMockVolumeAPI(1 << 30) // never finishes stopping
-	mock.setService(&api.OpenStackBlockStorageDisasterRecoveryService{Id: 9, Status: recoveryActive, RetentionDays: 10}, 0)
-
-	resp := deleteWithState(t, mock, false)
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("Delete succeeded although the Recovery service never stopped")
-	}
-	detail := resp.Diagnostics.Errors()[0].Detail()
-	for _, want := range []string{"still stopping after", "Run the command again"} {
-		if !strings.Contains(detail, want) {
-			t.Errorf("error %q does not mention %q", detail, want)
-		}
 	}
 }
 

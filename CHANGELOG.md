@@ -14,7 +14,8 @@
 - **`cleura_openstack_volume_recovery_service` resource** to switch on Cleura's Recovery service (disaster recovery) for a block volume, such as one created with the OpenStack provider's `openstack_blockstorage_volume_v3`.
   - Retention and immutability change in place.
   - A service that is already on is taken over.
-  - Destroying the resource waits until the service has stopped, so the volume can be deleted in the same run.
+  - Destroying the resource switches the service off without waiting for it to stop.
+    Cleura keeps the existing recovery points until their retention has passed, and the volume can't be deleted until then.
 
 ### Changed
 

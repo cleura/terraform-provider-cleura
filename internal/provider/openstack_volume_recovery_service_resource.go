@@ -31,13 +31,6 @@ var (
 	_ resource.ResourceWithImportState = (*volumeRecoveryServiceResource)(nil)
 )
 
-// How Delete waits for the Recovery service to stop. Variables, so tests can
-// shorten them.
-var (
-	recoveryServicePollInterval = 5 * time.Second
-	recoveryServiceStopTimeout  = 30 * time.Minute
-)
-
 // API WORKAROUND: the Recovery service keeps recovery points for 10 or 30
 // days, and the API reports any other value only at apply time. The provider
 // checks at plan time instead; update the list if the accepted values change.
@@ -82,8 +75,8 @@ func (r *volumeRecoveryServiceResource) Schema(_ context.Context, _ resource.Sch
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Switches on Cleura's Recovery service (disaster recovery) for a block volume, for " +
 			"example one created with the OpenStack provider's `openstack_blockstorage_volume_v3`. Settings change " +
-			"in place. Destroying the resource switches the service off and waits until it has stopped, so the " +
-			"volume can be deleted in the same run.\n\n" +
+			"in place. Destroying the resource switches the service off; Cleura keeps the existing recovery points " +
+			"until their retention has passed, and the volume can't be deleted until then.\n\n" +
 			"Import with `<volume_id>`, `<project_id>/<volume_id>` or `<region>/<project_id>/<volume_id>`.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -131,9 +124,8 @@ func (r *volumeRecoveryServiceResource) Schema(_ context.Context, _ resource.Sch
 				Optional: true,
 				Computed: true,
 				Default:  booldefault.StaticBool(false),
-				MarkdownDescription: "Whether recovery points are immutable. Defaults to `false`. Changed in place. " +
-					"Immutable recovery points may prevent later changes, and destroying this resource, until " +
-					"their retention has passed.",
+				MarkdownDescription: "Whether recovery points are immutable, so that they can't be deleted by hand during their " +
+					"retention. Defaults to `false`. Changed in place.",
 			},
 			"started_at": schema.StringAttribute{
 				Computed:            true,
@@ -257,23 +249,30 @@ func (r *volumeRecoveryServiceResource) Delete(ctx context.Context, req resource
 	if !found {
 		return
 	}
-	// Only an active service is switched off. One that is already stopping, or
-	// was switched off outside Terraform, only needs the wait below.
+	if v.DisasterRecoverService == nil {
+		return
+	}
+	// Only an active service is switched off. One that is already stopping was
+	// switched off outside Terraform.
 	if recoveryServiceOn(v) {
-		if _, err := setRecoveryService(ctx, r.config, t, nil); err != nil {
-			detail := volumeErrorDetail(err, t)
-			if state.Immutable.ValueBool() {
-				detail += "\n\nThe recovery points are immutable, which may prevent switching the service off " +
-					"until their retention has passed."
-			}
-			resp.Diagnostics.AddError("Failed to switch off the Recovery service", detail)
+		if v, err = setRecoveryService(ctx, r.config, t, nil); err != nil {
+			resp.Diagnostics.AddError("Failed to switch off the Recovery service", volumeErrorDetail(err, t))
 			return
 		}
 	}
-	if err := waitRecoveryServiceStopped(ctx, r.config, t); err != nil {
-		resp.Diagnostics.AddError("Recovery service still stopping",
-			capitalizeFirst(err.Error())+". The volume can't be deleted until the service has stopped. "+
-				"Run the command again to keep waiting.")
+	// API WORKAROUND: switching off is asynchronous, and Cleura refuses to
+	// delete the volume until the record is gone. A volume without recovery
+	// points stops within seconds (measured 2026-10-06). Cleura's documentation
+	// says a volume with recovery points can be deleted only once they have
+	// expired, up to the retention period (10 or 30 days) later, so waiting
+	// would only time out: Delete returns and says so. See item 1 in
+	// .agent/volume-recovery-service-api-feedback.md and
+	// https://docs.cleura.cloud/kna1/background/recovery-service/.
+	if s := v.DisasterRecoverService; s != nil {
+		resp.Diagnostics.AddWarning("Recovery service is stopping",
+			fmt.Sprintf("The Recovery service on volume %s is switched off. Cleura keeps the volume's existing "+
+				"recovery points until their retention (%d days) has passed, and the volume can't be deleted "+
+				"until they're gone.", t.volumeID, s.RetentionDays))
 	}
 }
 
@@ -414,50 +413,6 @@ func setRecoveryService(ctx context.Context, cfg *ProviderConfig, t volumeTarget
 func recoveryServiceOn(v *api.OpenStackBlockStorageVolume) bool {
 	return v.DisasterRecoverService != nil &&
 		v.DisasterRecoverService.Status == api.OpenStackBlockStorageVolumeDisasterRecoveryServiceStatusActive
-}
-
-// waitRecoveryServiceStopped waits until the volume no longer has a Recovery
-// service record, or the volume is gone.
-//
-// API WORKAROUND: Cleura's API deletes a volume only once its Recovery service
-// has stopped and its recovery snapshots are gone, and the record
-// disappearing is the sign of that. Terraform deletes the volume straight
-// after this resource, so Delete waits here until the record is gone. The
-// OpenStack provider deletes through the OpenStack Block Storage API; whether
-// that has the same rule hasn't been tested, and the wait is harmless either
-// way. See item 1 in .agent/volume-recovery-service-api-feedback.md.
-//
-// "stopped" ends the wait too. It is one of the API's statuses, but it hasn't
-// been seen in testing.
-//
-// Errors while polling are retried until the deadline, so a brief API hiccup
-// doesn't fail a destroy that is otherwise on track.
-func waitRecoveryServiceStopped(ctx context.Context, cfg *ProviderConfig, t volumeTarget) error {
-	// A wall-clock deadline, so the timeout stays correct after the machine
-	// sleeps.
-	deadline := time.Now().Add(recoveryServiceStopTimeout)
-	var lastErr error
-	for {
-		v, found, err := getVolume(ctx, cfg, t)
-		switch {
-		case err != nil:
-			lastErr = err
-		case !found, v.DisasterRecoverService == nil,
-			v.DisasterRecoverService.Status == api.OpenStackBlockStorageVolumeDisasterRecoveryServiceStatusStopped:
-			return nil
-		default:
-			lastErr = fmt.Errorf("the Recovery service on volume %s is still %s after %s",
-				t.volumeID, v.DisasterRecoverService.Status, recoveryServiceStopTimeout)
-		}
-		if time.Now().After(deadline) {
-			return lastErr
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(recoveryServicePollInterval):
-		}
-	}
 }
 
 // volumeErrorDetail renders an API error for a diagnostic, naming the volume
