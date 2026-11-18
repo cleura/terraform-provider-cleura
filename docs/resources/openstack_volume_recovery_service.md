@@ -15,17 +15,20 @@ This resource adds the Recovery service to it by ID, so the two providers work s
 - `retention_days` and `immutable` are changed in place, without switching the service off.
 - If the service is already on for the volume, creating this resource takes it over and applies the configured settings.
 - Destroying the resource, or removing it from your configuration, switches the service off.
-  Terraform doesn't wait for Cleura to finish stopping it, and warns that it is stopping.
+  Terraform waits until Cleura has finished stopping it, usually 10 to 20 seconds, so a `terraform destroy` that also deletes the volume works in one run.
+  With immutable recovery points, Terraform doesn't wait: see below.
 
 Cleura takes a recovery point of the volume once a day and keeps each one for `retention_days`.
 See Cleura's [Recovery service](https://docs.cleura.cloud/kna1/background/recovery-service/) documentation.
 
-~> **Deleting the volume:** after the service is switched off, Cleura takes no new recovery points but keeps the existing ones until their retention has passed, and the volume can't be deleted until they're gone.
-A `terraform destroy` that also deletes the volume therefore fails on the volume, unless the volume has no recovery points yet.
-Destroy this resource first, and delete the volume once its retention has passed.
+~> **Switching the service off deletes the volume's recovery points**, unless they are immutable, and this can't be undone.
+That happens when you destroy this resource, remove it from your configuration, or rename it without a `moved` block.
+For volumes whose recovery points you can't afford to lose, add `lifecycle { prevent_destroy = true }`.
+To stop managing the service with Terraform but keep it on, use a `removed` block with `lifecycle { destroy = false }`, or `terraform state rm`.
 
-~> **Immutable recovery points** (`immutable = true`) can't be deleted by hand during their retention.
-You can still change or switch off the service at any time.
+~> **Immutable recovery points** (`immutable = true`) can't be deleted, by hand or by switching the service off, until their retention has passed.
+You can still change or switch off the service at any time; switching it off stops new recovery points.
+The volume can't be deleted until the last recovery point has expired, up to `retention_days` later, so Terraform doesn't wait for it and warns instead.
 
 ### Moving from other tooling
 
@@ -99,7 +102,7 @@ terraform import cleura_openstack_volume_recovery_service.data 5c9a1f0e-2b3d-4e5
 
 ### Optional
 
-- `immutable` (Boolean) Whether recovery points are immutable, so that they can't be deleted by hand during their retention. Defaults to `false`. Changed in place.
+- `immutable` (Boolean) Whether recovery points are immutable: kept for their full retention, even after the service is switched off, and the volume can't be deleted until then. Defaults to `false`. Changed in place.
 - `project_id` (String) OpenStack project of the volume. Defaults to the provider's `project_id`. Changing it forces a new resource.
 - `region` (String) Region of the volume. Defaults to the provider's `region`. Changing it forces a new resource.
 
