@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## v0.4.0
+
+This release adds OIDC sign-in for Gardener clusters and Cleura's Recovery service for block volumes.
+Existing configurations need no changes.
 
 ### Added
 
