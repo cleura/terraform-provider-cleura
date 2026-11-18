@@ -377,6 +377,7 @@ func (p *cleuraProvider) Resources(_ context.Context) []func() resource.Resource
 		NewOpenStackProjectResource,
 		NewOpenStackUserResource,
 		NewOpenStackRoleAssignmentResource,
+		NewOpenStackVolumeRecoveryServiceResource,
 	}
 }
 
