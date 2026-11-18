@@ -21,8 +21,9 @@ import (
 type shootModel struct {
 	resource_gardener_shoot.GardenerShootModel
 
-	ID        types.String `tfsdk:"id"`
-	ProjectID types.String `tfsdk:"project_id"`
+	ID                              types.String `tfsdk:"id"`
+	ProjectID                       types.String `tfsdk:"project_id"`
+	AuthenticationConfigurationName types.String `tfsdk:"authentication_configuration_name"`
 }
 
 // shootID is the id of a shoot, and of a kubeconfig for it: "<project_id>/<name>".

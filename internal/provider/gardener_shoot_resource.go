@@ -225,6 +225,8 @@ func (r *GardenerShootResource) Create(ctx context.Context, req resource.CreateR
 		HibernationSchedules: hibernationSchedulesPtr,
 		Maintenance:          maintenancePtr,
 		Networking:           networkingPtr,
+
+		AuthenticationConfigurationName: data.AuthenticationConfigurationName.ValueStringPointer(),
 	}
 	// A project must be prepared for Gardener before it can hold a shoot, and
 	// the API cannot report whether it already is, so this runs on every
@@ -477,7 +479,22 @@ func (r *GardenerShootResource) Update(ctx context.Context, req resource.UpdateR
 		Networking:           networkingPtr,
 	}
 
-	response, err := r.config.Client.GardenerEditShoot(ctx, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString(), reqBody)
+	// The authentication configuration is sent only when it changes: left out,
+	// the API keeps the current one. Removing it needs an explicit null.
+	detachAuthentication := false
+	if !data.AuthenticationConfigurationName.Equal(state.AuthenticationConfigurationName) {
+		if data.AuthenticationConfigurationName.IsNull() {
+			detachAuthentication = true
+		} else {
+			reqBody.AuthenticationConfigurationName = data.AuthenticationConfigurationName.ValueStringPointer()
+		}
+	}
+	editBody, err := editShootRequestBody(reqBody, detachAuthentication)
+	if err != nil {
+		resp.Diagnostics.AddError("Failed to build the cluster update request", err.Error())
+		return
+	}
+	response, err := r.config.Client.GardenerEditShootWithBody(ctx, r.config.Cloud, r.config.Region, projectID, data.Name.ValueString(), "application/json", bytes.NewReader(editBody))
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to update Gardener cluster", err.Error())
 		return

@@ -83,7 +83,7 @@ func TestProviderCachesDoNotCacheFailures(t *testing.T) {
 	mock := newMockIdentity()
 	cfg := newMockConfig(t, mock)
 
-	mock.injectFaultOnce("GET /openstack/identity/v2/domains", 503)
+	mock.injectFaultOnce("GET /openstack/identity/v3/domains", 503)
 	if _, err := cfg.regionDomainID(context.Background()); err == nil {
 		t.Fatal("expected the injected 503 to fail domain resolution")
 	}

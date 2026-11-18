@@ -119,6 +119,7 @@ resource "cleura_gardener_shoot" "example" {
 ### Optional
 
 - `allowed_cidrs` (List of String) List of CIDR blocks permitted to reach the cluster's Kubernetes API server. Optional and Computed: if omitted, the API's current allowlist is read back into state. Applied in place (no replacement).
+- `authentication_configuration_name` (String) Name of a `cleura_gardener_authentication_configuration` whose OIDC issuers the cluster accepts tokens from. Setting, changing or removing it updates the cluster in place.
 - `enable_ha_control_plane` (Boolean) Bool. Whether the Kubernetes control plane runs in high-availability mode. Optional and Computed (the API sets it when omitted). Enabling it is applied in place; disabling it (true → false) forces the cluster to be recreated.
 - `hibernation_schedules` (Attributes List) Optional and Computed list of automated hibernation windows that scale the cluster down and back up on a schedule. Omit to leave hibernation unmanaged (current schedules are read back into state). Applied in place. (see [below for nested schema](#nestedatt--hibernation_schedules))
 - `maintenance` (Attributes) Optional and Computed maintenance settings (auto-update behavior and the daily maintenance time window). If omitted, Gardener assigns defaults that are read back into state. Applied in place. (see [below for nested schema](#nestedatt--maintenance))

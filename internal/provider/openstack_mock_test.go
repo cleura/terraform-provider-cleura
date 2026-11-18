@@ -198,17 +198,41 @@ func apiError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, api.FrameworkHttpErrorResponse{Error: api.FrameworkHttpErrorContent{Code: status, Message: msg}})
 }
 
+// serveDomains registers the two listings the provider joins to resolve a
+// region's domain: the v3 domain listing and the identity authorities.
+// domains maps domain id -> (name, authority tag); regions maps authority tag
+// -> region tags. Provisioned authorities only; add an "available" authority
+// through the extra parameter.
+func serveDomains(mux *http.ServeMux, domains map[string][2]string, regions map[string][]string, extra []api.OpenStackIdentityIdentityAuthority, onList func()) {
+	mux.HandleFunc("GET /openstack/identity/v3/domains", func(w http.ResponseWriter, r *http.Request) {
+		if onList != nil {
+			onList()
+		}
+		var out []api.OpenStackIdentityDomain
+		for id, d := range domains {
+			out = append(out, api.OpenStackIdentityDomain{Id: id, Name: d[0], IdentityAuthorityTag: d[1], Enabled: true})
+		}
+		writeJSON(w, 200, out)
+	})
+	mux.HandleFunc("GET /openstack/identity/v1/identity-authorities", func(w http.ResponseWriter, r *http.Request) {
+		out := append([]api.OpenStackIdentityIdentityAuthority{}, extra...)
+		for tag, tags := range regions {
+			a := api.OpenStackIdentityIdentityAuthority{Tag: tag, Name: tag, Status: api.Provisioned}
+			for _, t := range tags {
+				a.Regions = append(a.Regions, api.OpenStackIdentityRegionWithStatus{Tag: t, IsActive: true})
+			}
+			out = append(out, a)
+		}
+		writeJSON(w, 200, out)
+	})
+}
+
 func (m *mockIdentity) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /openstack/identity/v2/domains", func(w http.ResponseWriter, r *http.Request) {
+	serveDomains(mux, map[string][2]string{m.domainID: {"CCP_Domain_1", "SE_STO2"}}, map[string][]string{"SE_STO2": {"Sto2"}}, nil, func() {
 		m.mu.Lock()
 		m.domainListCalls++
 		m.mu.Unlock()
-		name := "CCP_Domain_1"
-		writeJSON(w, 200, []api.CommonOpenStackDomain{{
-			Id: m.domainID, Name: &name, Status: "active",
-			Area: api.CommonOpenStackDomainArea{Id: 1, Name: "Stockholm", Tag: "sto", Regions: []api.CommonOpenStackRegion{{Id: 1, Name: "Stockholm 2", Tag: "Sto2"}}},
-		}})
 	})
 	mux.HandleFunc("GET /openstack/identity/v1/current-user/projects", func(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()

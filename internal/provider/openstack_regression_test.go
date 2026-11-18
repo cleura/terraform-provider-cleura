@@ -19,17 +19,8 @@ import (
 func twoDomainMux(probedRegions *[]string) http.Handler {
 	domainRegions := map[string]string{"dom-sto": "Sto2", "dom-fra": "Fra1"}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /openstack/identity/v2/domains", func(w http.ResponseWriter, r *http.Request) {
-		sto, fra := "CCP_Domain_1", "CCP_Domain_2"
-		writeJSON(w, 200, []api.CommonOpenStackDomain{
-			{Id: "dom-sto", Name: &sto, Status: "provisioned", Area: api.CommonOpenStackDomainArea{
-				Id: 1, Name: "Sweden / Stockholm", Tag: "SE_STO2",
-				Regions: []api.CommonOpenStackRegion{{Id: 2, Name: "Stockholm", Tag: "Sto2"}}}},
-			{Id: "dom-fra", Name: &fra, Status: "provisioned", Area: api.CommonOpenStackDomainArea{
-				Id: 7, Name: "Germany / Frankfurt", Tag: "DE",
-				Regions: []api.CommonOpenStackRegion{{Id: 6, Name: "Frankfurt", Tag: "Fra1"}}}},
-		})
-	})
+	serveDomains(mux, map[string][2]string{"dom-sto": {"CCP_Domain_1", "SE_STO2"}, "dom-fra": {"CCP_Domain_2", "DE"}},
+		map[string][]string{"SE_STO2": {"Sto2"}, "DE": {"Fra1"}}, nil, nil)
 	mux.HandleFunc("GET /openstack/identity/v2/domains/{domain}/projects/{project}/quotas/{region}", func(w http.ResponseWriter, r *http.Request) {
 		region := r.PathValue("region")
 		*probedRegions = append(*probedRegions, region)
@@ -108,7 +99,7 @@ func TestDomainRegionTagFailsRatherThanGuessing(t *testing.T) {
 func TestProjectExistsRefusesToGuessARegion(t *testing.T) {
 	var probed []string
 	quotaOnly := http.NewServeMux()
-	quotaOnly.HandleFunc("GET /openstack/identity/v2/domains", func(w http.ResponseWriter, r *http.Request) {
+	quotaOnly.HandleFunc("GET /openstack/identity/v3/domains", func(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 500, "Internal Server Error")
 	})
 	quotaOnly.HandleFunc("GET /openstack/identity/v2/domains/{domain}/projects/{project}/quotas/{region}", func(w http.ResponseWriter, r *http.Request) {
