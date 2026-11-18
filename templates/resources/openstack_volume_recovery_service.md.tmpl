@@ -24,7 +24,8 @@ See Cleura's [Recovery service](https://docs.cleura.cloud/kna1/background/recove
 ~> **Switching the service off deletes the volume's recovery points**, unless they are immutable, and this can't be undone.
 That happens when you destroy this resource, remove it from your configuration, or rename it without a `moved` block.
 For volumes whose recovery points you can't afford to lose, add `lifecycle { prevent_destroy = true }`.
-To stop managing the service with Terraform but keep it on, use a `removed` block with `lifecycle { destroy = false }`, or `terraform state rm`.
+It blocks destroying or replacing the resource, but not deleting its block from the configuration, because the setting goes with the block.
+To stop managing the service with Terraform but keep it on, replace the resource block with a `removed` block with `lifecycle { destroy = false }` (Terraform 1.7 or later), or use `terraform state rm`.
 
 ~> **Immutable recovery points** (`immutable = true`) can't be deleted, by hand or by switching the service off, until their retention has passed.
 You can still change or switch off the service at any time; switching it off stops new recovery points.
