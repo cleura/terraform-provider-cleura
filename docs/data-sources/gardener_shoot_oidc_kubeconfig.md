@@ -18,7 +18,7 @@ It only works once the cluster has finished applying its configuration; a kubeco
 
 Set `authentication_configuration_name` to the configuration resource when the same apply changes that configuration, for example adds the audience.
 Terraform then reads the kubeconfig after the change rather than during planning.
-The cluster itself only picks up the change when it is reconciled, so set `reconcile_on_update = true` on the configuration, or the new audience is refused at sign-in until the cluster's next reconcile.
+The cluster itself picks up the change only when it is reconciled: within a few minutes with `reconcile_on_update = true` on the configuration, otherwise at its next reconcile. Until then, sign-ins with the new audience are refused.
 
 ## Example Usage
 
